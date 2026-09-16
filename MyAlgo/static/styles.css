@@ -839,39 +839,45 @@ tr.atm-row .td-strike {
   border-color: var(--red);
 }
 
-/* Toast */
+/* Toast Notifications (Positioned at Top to never block Basket bar or bottom actions) */
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  top: 65px;
+  right: 20px;
+  bottom: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  z-index: 200;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  max-width: 380px;
 }
 
 .toast {
   background: var(--bg-card);
   border: 1px solid var(--border-highlight);
   color: var(--text-main);
-  padding: 12px 18px;
+  padding: 10px 16px;
   border-radius: 8px;
-  box-shadow: var(--modal-shadow);
-  font-size: 13px;
-  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 12.5px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 10px;
-  animation: slideIn 0.2s ease-out;
+  pointer-events: auto;
+  cursor: pointer;
+  animation: slideInDown 0.2s ease-out;
 }
 
 .toast.success { border-left: 4px solid var(--green); }
 .toast.error { border-left: 4px solid var(--red); }
 .toast.info { border-left: 4px solid var(--blue); }
+.toast.warning { border-left: 4px solid var(--yellow); }
 
-@keyframes slideIn {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+@keyframes slideInDown {
+  from { transform: translateY(-16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
 }
 
 /* Desktop Visibility Defaults */
@@ -1687,16 +1693,19 @@ tr.atm-row .td-strike {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   }
 
-  /* Toasts */
+  /* Toasts on mobile: pinned to top below header */
   .toast-container {
-    left: 16px;
-    right: 16px;
-    bottom: 80px;
+    top: 56px;
+    left: 12px;
+    right: 12px;
+    bottom: auto;
+    max-width: none;
   }
 
   .toast {
     width: 100%;
-    font-size: 13px;
+    font-size: 12px;
+    padding: 9px 14px;
   }
 }
 
@@ -1830,5 +1839,217 @@ tr.atm-row .td-strike {
   border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* --------------------------------------------------------- */
+/* Option Chain Inline Basket Mode Styles */
+/* --------------------------------------------------------- */
+.basket-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.basket-mode-toggle.active {
+  background: var(--blue);
+  color: var(--blue-contrast);
+  border-color: var(--blue);
+  font-weight: 700;
+}
+
+.basket-mode-toggle.active strong {
+  color: var(--blue-contrast) !important;
+}
+
+/* Compact B and S Action Buttons in Option Chain */
+.oc-bs-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.oc-bs-btn {
+  width: 28px;
+  height: 24px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border: 1px solid var(--border-highlight);
+  transition: all 0.15s ease;
+  padding: 0;
+  user-select: none;
+}
+
+.oc-bs-btn:hover {
+  color: var(--text-main);
+  border-color: var(--blue);
+}
+
+.oc-bs-btn.active-b {
+  background: var(--green) !important;
+  color: #ffffff !important;
+  border-color: var(--green) !important;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+}
+
+.oc-bs-btn.active-s {
+  background: var(--red) !important;
+  color: #ffffff !important;
+  border-color: var(--red) !important;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+.oc-basket-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.oc-lot-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+.oc-lot-dropdown {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-highlight);
+  color: var(--text-main);
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Floating Bottom Basket Dock */
+.oc-basket-dock {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 85;
+  background: var(--bg-card);
+  border: 1px solid var(--border-highlight);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.45);
+  padding: 12px 20px;
+  margin-top: 20px;
+  animation: slideUpDock 0.2s ease-out;
+}
+
+@keyframes slideUpDock {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.oc-basket-dock-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.oc-basket-dock-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.oc-basket-dock-title {
+  display: flex;
+  align-items: center;
+  font-size: 13.5px;
+}
+
+.oc-basket-dock-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-height: 70px;
+  overflow-y: auto;
+}
+
+.dock-leg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-family: monospace;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+
+.dock-leg-chip.buy-chip {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--green);
+}
+
+.dock-leg-chip.sell-chip {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--red);
+}
+
+.dock-chip-qty {
+  background: var(--bg-card);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.dock-chip-remove {
+  cursor: pointer;
+  opacity: 0.6;
+  margin-left: 2px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.dock-chip-remove:hover {
+  opacity: 1;
+  color: var(--red);
+}
+
+.oc-basket-dock-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .oc-basket-dock {
+    position: fixed;
+    bottom: 52px;
+    left: 0;
+    right: 0;
+    padding: 10px 12px;
+    border-radius: 10px 10px 0 0;
+  }
 }
 

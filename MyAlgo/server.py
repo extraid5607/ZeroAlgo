@@ -360,6 +360,109 @@ def cancel_order(order_id):
     return jsonify({"status": "error", "message": msg}), 400
 
 
+@app.route("/api/basket-orders", methods=["POST"])
+def place_basket_orders():
+    data = request.json or {}
+    orders = data.get("orders") or []
+    target_mode = data.get("target_mode", "active")
+    account_ids = data.get("account_ids")
+
+    if not orders or not isinstance(orders, list):
+        return jsonify({"status": "error", "message": "At least one order required in basket"}), 400
+
+    results = []
+    success_count = 0
+    mcx_keywords = ["CRUDEOIL", "GOLD", "SILVER", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"]
+
+    for idx, ord_item in enumerate(orders):
+        symbol = str(ord_item.get("symbol", "")).strip()
+        quantity = int(ord_item.get("quantity", 0))
+        if not symbol or quantity <= 0:
+            results.append({
+                "leg_index": idx,
+                "symbol": symbol,
+                "success": False,
+                "message": "Invalid symbol or quantity"
+            })
+            continue
+
+        # Auto-resolve exchange
+        exchange = ord_item.get("exchange")
+        if not exchange or exchange == "NFO":
+            contract = get_contract_by_symbol(symbol)
+            if contract and contract.get("exchange"):
+                exchange = contract["exchange"]
+            elif any(sym in symbol.upper() for sym in mcx_keywords):
+                exchange = "MCX"
+            elif "SENSEX" in symbol.upper() or "BANKEX" in symbol.upper():
+                exchange = "BFO"
+            else:
+                exchange = "NFO"
+        ord_item["exchange"] = exchange
+
+        # Multi-account or single account
+        if target_mode == "all" or (target_mode == "custom" and len(account_ids or []) > 1):
+            leg_res = account_mgr.place_order_multi(target_mode, account_ids, ord_item)
+            leg_success = any(r.get("success") for r in leg_res)
+            if leg_success:
+                success_count += 1
+            results.append({
+                "leg_index": idx,
+                "symbol": symbol,
+                "exchange": exchange,
+                "side": ord_item.get("side", "BUY"),
+                "quantity": quantity,
+                "success": leg_success,
+                "multi": True,
+                "account_results": leg_res,
+                "message": f"Placed on {sum(1 for r in leg_res if r.get('success'))}/{len(leg_res)} accounts"
+            })
+        else:
+            acc_id = ord_item.get("account_id")
+            client = account_mgr.get_client(acc_id) if acc_id else get_active_client()
+            if not client:
+                results.append({
+                    "leg_index": idx,
+                    "symbol": symbol,
+                    "success": False,
+                    "message": "No active account session"
+                })
+                continue
+
+            success, msg, order_id = client.place_order(
+                symbol=symbol,
+                exchange=exchange,
+                side=ord_item.get("side", "BUY").upper(),
+                product=ord_item.get("product", "NRML").upper(),
+                order_type=ord_item.get("order_type", "MARKET").upper(),
+                quantity=quantity,
+                price=float(ord_item.get("price", 0.0)),
+                trigger_price=float(ord_item.get("trigger_price", 0.0)),
+            )
+            if success:
+                success_count += 1
+            results.append({
+                "leg_index": idx,
+                "symbol": symbol,
+                "exchange": exchange,
+                "side": ord_item.get("side", "BUY"),
+                "quantity": quantity,
+                "success": success,
+                "order_id": order_id if success else None,
+                "message": msg,
+                "ucc": client.ucc
+            })
+
+    status = "success" if success_count == len(orders) else ("partial" if success_count > 0 else "error")
+    return jsonify({
+        "status": status,
+        "total_legs": len(orders),
+        "success_count": success_count,
+        "results": results,
+        "message": f"Basket execution complete: {success_count}/{len(orders)} legs placed successfully."
+    })
+
+
 # ---------------------------------------------------------
 # Positions Endpoints
 # ---------------------------------------------------------

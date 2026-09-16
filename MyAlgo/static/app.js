@@ -93,6 +93,11 @@ let state = {
   accounts: [],
   activeAccountId: '',
   orderTargetMode: 'active', // 'active' | 'all'
+  // Basket Order state
+  basketMode: false,
+  basket: [],
+  basketTargetMode: 'active', // 'active' | 'all'
+  latestChainData: null,
 };
 
 // ---------------------------------------------------------
@@ -106,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFunds();
   loadStaticIpSettings();
   testOutgoingIp();
+  loadBasketFromStorage();
 
   // Background polling intervals
   setInterval(checkSession, 15000);
@@ -201,6 +207,8 @@ function renderAccountDropdowns() {
 
   if (badgeCount) badgeCount.innerText = state.accounts.length;
   if (orderAccCount) orderAccCount.innerText = state.accounts.length;
+  const basketAccCount = document.getElementById('basket-accs-count');
+  if (basketAccCount) basketAccCount.innerText = state.accounts.length;
 
   const activeAcc = state.accounts.find(a => a.id === state.activeAccountId) || state.accounts[0];
   if (orderActiveUccLabel && activeAcc) {
@@ -701,6 +709,9 @@ async function loadOptionChain(silent = false) {
       return;
     }
 
+    // Save chain data for presets
+    state.latestChainData = data;
+
     // Update spot and ATM tag
     document.getElementById('oc-spot-price').innerText = `₹${data.spot_price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
     document.getElementById('oc-atm-tag').innerText = `ATM ${data.atm_strike}`;
@@ -717,28 +728,81 @@ async function loadOptionChain(silent = false) {
       const ceOi = ce.oi ? Number(ce.oi).toLocaleString('en-IN') : '--';
       const peOi = pe.oi ? Number(pe.oi).toLocaleString('en-IN') : '--';
 
-      const ceBuyBtn = ce.symbol ? `<button class="btn btn-buy" onclick="quickOrder('${ce.symbol}', 'BUY', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})">BUY</button>` : '';
-      const ceSellBtn = ce.symbol ? `<button class="btn btn-sell" onclick="quickOrder('${ce.symbol}', 'SELL', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})">SELL</button>` : '';
+      let ceActionCell = '';
+      let peActionCell = '';
 
-      const peBuyBtn = pe.symbol ? `<button class="btn btn-buy" onclick="quickOrder('${pe.symbol}', 'BUY', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})">BUY</button>` : '';
-      const peSellBtn = pe.symbol ? `<button class="btn btn-sell" onclick="quickOrder('${pe.symbol}', 'SELL', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})">SELL</button>` : '';
+      if (!state.basketMode) {
+        // Normal Mode: Punch single order like earlier
+        const ceBuyBtn = ce.symbol ? `<button class="btn btn-buy" onclick="quickOrder('${ce.symbol}', 'BUY', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})">BUY</button>` : '';
+        const ceSellBtn = ce.symbol ? `<button class="btn btn-sell" onclick="quickOrder('${ce.symbol}', 'SELL', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})">SELL</button>` : '';
+        ceActionCell = `<div class="action-cell">${ceBuyBtn}${ceSellBtn}</div>`;
+
+        const peBuyBtn = pe.symbol ? `<button class="btn btn-buy" onclick="quickOrder('${pe.symbol}', 'BUY', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})">BUY</button>` : '';
+        const peSellBtn = pe.symbol ? `<button class="btn btn-sell" onclick="quickOrder('${pe.symbol}', 'SELL', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})">SELL</button>` : '';
+        peActionCell = `<div class="action-cell" style="justify-content: flex-start;">${peBuyBtn}${peSellBtn}</div>`;
+      } else {
+        // Basket Mode: Compact [ B ] [ S ] buttons + Lots dropdown
+        if (ce.symbol) {
+          const bLeg = state.basket.find(l => l.symbol === ce.symbol);
+          const isBuy = bLeg && bLeg.side === 'BUY';
+          const isSell = bLeg && bLeg.side === 'SELL';
+          const lots = bLeg ? (bLeg.lots || 1) : 1;
+          const lotSelector = bLeg ? `
+            <div class="oc-lot-select-wrap">
+              <span>Lots</span>
+              <select class="oc-lot-dropdown" onchange="setBasketLegLots('${ce.symbol}', this.value)">
+                ${[1,2,3,4,5,10,15,20,50].map(n => `<option value="${n}" ${lots === n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
+          ` : '';
+
+          ceActionCell = `
+            <div class="oc-basket-cell">
+              <div class="oc-bs-group">
+                <button class="oc-bs-btn ${isBuy ? 'active-b' : ''}" onclick="toggleBasketStrike('${ce.symbol}', 'BUY', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})" title="Add/Toggle BUY leg in Basket">B</button>
+                <button class="oc-bs-btn ${isSell ? 'active-s' : ''}" onclick="toggleBasketStrike('${ce.symbol}', 'SELL', ${ce.lotsize || state.currentLotSize}, ${ce.ltp || 0})" title="Add/Toggle SELL leg in Basket">S</button>
+              </div>
+              ${lotSelector}
+            </div>
+          `;
+        }
+
+        if (pe.symbol) {
+          const bLeg = state.basket.find(l => l.symbol === pe.symbol);
+          const isBuy = bLeg && bLeg.side === 'BUY';
+          const isSell = bLeg && bLeg.side === 'SELL';
+          const lots = bLeg ? (bLeg.lots || 1) : 1;
+          const lotSelector = bLeg ? `
+            <div class="oc-lot-select-wrap">
+              <span>Lots</span>
+              <select class="oc-lot-dropdown" onchange="setBasketLegLots('${pe.symbol}', this.value)">
+                ${[1,2,3,4,5,10,15,20,50].map(n => `<option value="${n}" ${lots === n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
+          ` : '';
+
+          peActionCell = `
+            <div class="oc-basket-cell">
+              <div class="oc-bs-group">
+                <button class="oc-bs-btn ${isBuy ? 'active-b' : ''}" onclick="toggleBasketStrike('${pe.symbol}', 'BUY', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})" title="Add/Toggle BUY leg in Basket">B</button>
+                <button class="oc-bs-btn ${isSell ? 'active-s' : ''}" onclick="toggleBasketStrike('${pe.symbol}', 'SELL', ${pe.lotsize || state.currentLotSize}, ${pe.ltp || 0})" title="Add/Toggle SELL leg in Basket">S</button>
+              </div>
+              ${lotSelector}
+            </div>
+          `;
+        }
+      }
 
       rowsHtml += `
         <tr class="${isAtm ? 'atm-row' : ''}">
           <td class="th-call td-call" style="color: var(--text-muted); font-size: 12px;">${ceOi}</td>
           <td class="th-call td-call" style="font-weight: 700; color: var(--text-main);">${ceLtp}</td>
           <td class="th-call td-call">
-            <div class="action-cell">
-              ${ceBuyBtn}
-              ${ceSellBtn}
-            </div>
+            ${ceActionCell}
           </td>
           <td class="td-strike">${row.strike}${isAtm ? ' <span style="font-size: 10px; color: var(--blue);">●</span>' : ''}</td>
           <td class="th-put td-put">
-            <div class="action-cell" style="justify-content: flex-start;">
-              ${peBuyBtn}
-              ${peSellBtn}
-            </div>
+            ${peActionCell}
           </td>
           <td class="th-put td-put" style="font-weight: 700; color: var(--text-main);">${peLtp}</td>
           <td class="th-put td-put" style="color: var(--text-muted); font-size: 12px;">${peOi}</td>
@@ -1578,16 +1642,28 @@ function closeLoginModal() {
 // ---------------------------------------------------------
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  // Prevent toast buildup: keep maximum 2 visible toasts at a time
+  while (container.children.length >= 2) {
+    container.removeChild(container.firstChild);
+  }
+
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.innerText = message;
+  toast.title = 'Click to dismiss';
+  toast.onclick = () => toast.remove();
+
+  const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : (type === 'warning' ? '⚠️' : 'ℹ️'));
+  toast.innerHTML = `<span style="font-size: 13px;">${icon}</span> <span>${message}</span>`;
   container.appendChild(toast);
 
-  const duration = type === 'error' ? 7000 : 4000;
+  const duration = type === 'error' ? 5000 : 2000;
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transition = 'opacity 0.3s';
-    setTimeout(() => toast.remove(), 300);
+    toast.style.transform = 'translateY(-10px)';
+    toast.style.transition = 'opacity 0.25s, transform 0.25s';
+    setTimeout(() => toast.remove(), 250);
   }, duration);
 }
 
@@ -1750,6 +1826,321 @@ async function testOutgoingIp() {
     if (btn) {
       btn.disabled = false;
       btn.innerText = '🔍 Check Outgoing IP';
+    }
+  }
+}
+
+// =========================================================
+// Basket Orders Management & Execution
+// =========================================================
+
+function resolveExchange(symbol) {
+  const sym = (symbol || '').toUpperCase();
+  const MCX_LIST = ['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI', 'GOLD', 'GOLDM', 'SILVER', 'SILVERM', 'COPPER', 'ZINC', 'ALUMINIUM'];
+  if (MCX_LIST.some(m => sym.startsWith(m))) return 'MCX';
+  if (sym.includes('SENSEX') || sym.includes('BANKEX')) return 'BFO';
+  return 'NFO';
+}
+
+function getLotSizeForSymbol(symbol) {
+  const sym = (symbol || '').toUpperCase();
+  for (const [key, size] of Object.entries(state.lotSizes)) {
+    if (sym.startsWith(key)) return size;
+  }
+  return 50;
+}
+
+function loadBasketFromStorage() {
+  try {
+    const raw = localStorage.getItem('zeroalgo_basket');
+    if (raw) {
+      state.basket = JSON.parse(raw);
+    }
+  } catch (err) {
+    console.error('Failed to load basket from storage', err);
+    state.basket = [];
+  }
+  updateBasketModeUI();
+}
+
+function saveBasketToStorage() {
+  try {
+    localStorage.setItem('zeroalgo_basket', JSON.stringify(state.basket));
+  } catch (err) {
+    console.error('Failed to save basket to storage', err);
+  }
+  updateBasketModeUI();
+}
+
+function toggleBasketMode() {
+  state.basketMode = !state.basketMode;
+  updateBasketModeUI();
+  // Immediately re-render option chain table so action cells switch to B/S or BUY/SELL
+  loadOptionChain(true);
+  showToast(
+    state.basketMode
+      ? '🧺 Basket Mode ON: Click [B] or [S] on any strike to add/remove'
+      : 'Basket Mode OFF: Click BUY/SELL to punch orders directly',
+    'info'
+  );
+}
+
+function updateBasketModeUI() {
+  const btn = document.getElementById('btn-basket-mode');
+  const statusText = document.getElementById('basket-mode-status-text');
+  const badge = document.getElementById('basket-mode-count-badge');
+  const dock = document.getElementById('oc-basket-dock');
+  const dockCount = document.getElementById('dock-legs-count');
+  const dockSummary = document.getElementById('dock-legs-summary');
+  const dockChips = document.getElementById('dock-legs-chips');
+  const dockExecBtn = document.getElementById('btn-dock-execute');
+  const dockAccsCount = document.getElementById('dock-accs-count');
+
+  if (dockAccsCount) {
+    dockAccsCount.innerText = state.accounts.length || 1;
+  }
+
+  const count = state.basket.length;
+
+  if (btn && statusText) {
+    btn.classList.toggle('active', !!state.basketMode);
+    statusText.innerText = state.basketMode ? 'ON' : 'OFF';
+  }
+
+  if (badge) {
+    badge.innerText = `${count} Leg${count === 1 ? '' : 's'}`;
+    badge.style.display = (state.basketMode || count > 0) ? 'inline-block' : 'none';
+  }
+
+  // Show dock whenever Basket Mode is ON or there are legs in the basket
+  if (dock) {
+    dock.style.display = (state.basketMode || count > 0) ? 'block' : 'none';
+  }
+
+  if (dockCount) dockCount.innerText = count;
+
+  if (dockSummary) {
+    if (count === 0) {
+      dockSummary.innerText = 'Click [B] or [S] on any strike in the table to add';
+    } else {
+      const buys = state.basket.filter(l => l.side === 'BUY').length;
+      const sells = state.basket.filter(l => l.side === 'SELL').length;
+      const totalLots = state.basket.reduce((acc, l) => acc + (parseInt(l.lots) || 1), 0);
+      dockSummary.innerText = `${buys} BUY, ${sells} SELL • ${totalLots} Total Lots`;
+    }
+  }
+
+  if (dockChips) {
+    if (count === 0) {
+      dockChips.innerHTML = '<span style="font-size: 11px; color: var(--text-dim); font-style: italic;">No strikes selected yet</span>';
+    } else {
+      dockChips.innerHTML = state.basket.map((leg) => {
+        const isBuy = leg.side === 'BUY';
+        const chipClass = isBuy ? 'buy-chip' : 'sell-chip';
+        return `
+          <div class="dock-leg-chip ${chipClass}">
+            <strong>${leg.side}</strong>
+            <span>${leg.symbol}</span>
+            <span class="dock-chip-qty">${leg.lots || 1} Lot (${leg.quantity})</span>
+            <span class="dock-chip-remove" onclick="removeBasketLegBySymbol('${leg.symbol}')" title="Remove strike">✕</span>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  if (dockExecBtn) {
+    dockExecBtn.disabled = count === 0;
+    dockExecBtn.style.opacity = count === 0 ? '0.5' : '1';
+    dockExecBtn.innerText = count === 0 ? '🚀 Place Basket Order' : `🚀 Place Basket Order (${count} Legs)`;
+  }
+}
+
+function toggleBasketStrike(symbol, side, lotSize, ltp) {
+  const existingIdx = state.basket.findIndex(l => l.symbol === symbol);
+  const lSize = lotSize || getLotSizeForSymbol(symbol);
+
+  if (existingIdx >= 0) {
+    const existing = state.basket[existingIdx];
+    if (existing.side === side) {
+      // Clicked the active side again -> remove from basket
+      state.basket.splice(existingIdx, 1);
+      showToast(`Removed ${symbol} from Basket`, 'info');
+    } else {
+      // Clicked opposite side -> flip side
+      existing.side = side;
+      showToast(`Switched ${symbol} to ${side}`, 'info');
+    }
+  } else {
+    // Add new strike with 1 lot
+    state.basket.push({
+      symbol: symbol,
+      side: side,
+      product: 'NRML',
+      order_type: 'MARKET',
+      lots: 1,
+      quantity: lSize,
+      price: ltp || 0.0,
+      exchange: resolveExchange(symbol),
+      lotSize: lSize,
+      status: 'Draft',
+      order_id: null,
+      error: null
+    });
+    showToast(`Added ${symbol} (${side}) to Basket`, 'success');
+  }
+
+  saveBasketToStorage();
+  loadOptionChain(true); // Re-render table cells immediately
+}
+
+function setBasketLegLots(symbol, lotsVal) {
+  const leg = state.basket.find(l => l.symbol === symbol);
+  if (leg) {
+    leg.lots = parseInt(lotsVal) || 1;
+    leg.quantity = leg.lots * (leg.lotSize || getLotSizeForSymbol(symbol));
+    saveBasketToStorage();
+  }
+}
+
+function removeBasketLegBySymbol(symbol) {
+  const idx = state.basket.findIndex(l => l.symbol === symbol);
+  if (idx >= 0) {
+    state.basket.splice(idx, 1);
+    saveBasketToStorage();
+    loadOptionChain(true);
+    showToast(`Removed ${symbol} from Basket`, 'info');
+  }
+}
+
+function clearBasket() {
+  if (state.basket.length === 0) return;
+  state.basket = [];
+  saveBasketToStorage();
+  loadOptionChain(true);
+  showToast('Basket cleared', 'info');
+}
+
+function setBasketTarget(mode) {
+  state.basketTargetMode = mode;
+  const activeBtn = document.getElementById('dock-target-active');
+  const allBtn = document.getElementById('dock-target-all');
+  if (activeBtn && allBtn) {
+    activeBtn.classList.toggle('active', mode === 'active');
+    allBtn.classList.toggle('active', mode === 'all');
+  }
+  updateBasketModeUI();
+}
+
+function addCurrentModalToBasket() {
+  const symbol = (document.getElementById('order-symbol').value || '').trim();
+  if (!symbol) {
+    showToast('Please select an option contract first', 'error');
+    return;
+  }
+
+  const side = state.orderSide || 'BUY';
+  const product = document.getElementById('order-product').value || 'NRML';
+  const order_type = document.getElementById('order-type').value || 'MARKET';
+  const quantity = parseInt(document.getElementById('order-qty').value) || state.currentLotSize || 50;
+  const price = parseFloat(document.getElementById('order-price').value) || 0.0;
+  const exchange = resolveExchange(symbol);
+  const lotSize = state.currentLotSize || getLotSizeForSymbol(symbol);
+  const lots = Math.max(1, Math.round(quantity / lotSize));
+
+  const existing = state.basket.find(l => l.symbol === symbol);
+  if (existing) {
+    existing.side = side;
+    existing.product = product;
+    existing.order_type = order_type;
+    existing.lots = lots;
+    existing.quantity = quantity;
+    existing.price = price;
+  } else {
+    state.basket.push({
+      symbol,
+      side,
+      product,
+      order_type,
+      lots,
+      quantity,
+      price,
+      exchange,
+      lotSize,
+      status: 'Draft',
+      order_id: null,
+      error: null
+    });
+  }
+
+  saveBasketToStorage();
+  loadOptionChain(true);
+  closeOrderModal();
+  showToast(`Added ${symbol} (${side}) to Basket (${state.basket.length} total)`, 'success');
+}
+
+async function executeBasket() {
+  if (state.basket.length === 0) {
+    showToast('Basket is empty. Add strikes first.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-dock-execute');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = `⏳ Placing ${state.basket.length} Orders...`;
+  }
+
+  const payload = {
+    orders: state.basket.map(l => ({
+      symbol: l.symbol,
+      exchange: l.exchange || resolveExchange(l.symbol),
+      side: l.side,
+      product: l.product || 'NRML',
+      order_type: l.order_type || 'MARKET',
+      quantity: l.quantity,
+      price: l.order_type === 'LIMIT' ? (parseFloat(l.price) || 0.0) : 0.0,
+      trigger_price: 0.0,
+    })),
+    target_mode: state.basketTargetMode || 'active'
+  };
+
+  try {
+    const res = await fetch('/api/basket-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    if (data.results && Array.isArray(data.results)) {
+      const placed = data.results.filter(r => r.success);
+      const failed = data.results.filter(r => !r.success);
+
+      if (placed.length > 0 && failed.length === 0) {
+        showToast(`All ${placed.length} Basket Orders Placed Successfully!`, 'success');
+        // Clear placed basket
+        state.basket = [];
+        saveBasketToStorage();
+        loadOptionChain(true);
+      } else if (placed.length > 0 && failed.length > 0) {
+        showToast(`Basket Partial: ${placed.length} placed, ${failed.length} failed. Check Orders.`, 'warning');
+      } else {
+        const firstErr = failed[0] ? failed[0].message : 'Order failed';
+        showToast(`Basket Failed: ${firstErr}`, 'error');
+      }
+    } else {
+      showToast(data.message || 'Basket execution finished', data.status === 'error' ? 'error' : 'success');
+    }
+
+    loadOrders(); // Refresh orders book immediately
+  } catch (err) {
+    console.error('Basket execution error', err);
+    showToast('Basket execution error: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = state.basket.length === 0 ? '🚀 Place Basket Order' : `🚀 Place Basket Order (${state.basket.length} Legs)`;
     }
   }
 }
