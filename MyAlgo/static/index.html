@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ZeroAlgo - Lightweight Trading Terminal</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script>
+    (function() {
+      var t = localStorage.getItem('zeroalgo_theme') || localStorage.getItem('myalgo_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">ZeroAlgo</div>
+        <div class="brand-subtitle">Trading Terminal</div>
+      </div>
+    </div>
+
+    <!-- Desktop Stats / Actions (Margin in Account tab & PnL in Position tab) -->
+    <div class="header-stats">
+      <div id="conn-badge" class="badge disconnected">
+        <span class="dot"></span>
+        <span id="conn-status">Checking...</span>
+      </div>
+      <button class="btn btn-secondary" onclick="openLoginModal()">Login / Session</button>
+      <button class="btn btn-secondary theme-toggle-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️ Light</button>
+    </div>
+
+    <!-- Mobile Top Right Action -->
+    <div class="mobile-header-actions">
+      <div id="mobile-conn-badge" class="badge disconnected" onclick="openLoginModal()">
+        <span class="dot"></span>
+        <span id="mobile-conn-status">Kotak</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" id="mobile-theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️</button>
+      <button class="btn btn-secondary btn-sm" onclick="openLoginModal()">🔑 Login</button>
+    </div>
+  </header>
+
+  <!-- Navigation Tabs -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('tab-option-chain')">
+      <span class="tab-icon">📊</span>
+      <span class="tab-label">Option Chain</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('tab-orders')">
+      <span class="tab-icon">📝</span>
+      <span class="tab-label">Orders</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('tab-positions')">
+      <span class="tab-icon">💼</span>
+      <span class="tab-label">Positions (<span id="tab-open-pos-count">0</span>)</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('tab-account')">
+      <span class="tab-icon">👤</span>
+      <span class="tab-label">Account</span>
+    </button>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="container">
+
+    <!-- ========================================================= -->
+    <!-- TAB 1: OPTION CHAIN -->
+    <!-- ========================================================= -->
+    <section id="tab-option-chain" class="tab-panel active">
+      <div class="controls-bar">
+        <div class="controls-left">
+          <div class="pill-group" id="index-pills">
+            <button class="pill-btn active" onclick="selectIndex('NIFTY')">NIFTY</button>
+            <button class="pill-btn" onclick="selectIndex('BANKNIFTY')">BANKNIFTY</button>
+            <button class="pill-btn" onclick="selectIndex('FINNIFTY')">FINNIFTY</button>
+            <button class="pill-btn" onclick="selectIndex('MIDCPNIFTY')">MIDCPNIFTY</button>
+            <button class="pill-btn" onclick="selectIndex('SENSEX')">SENSEX</button>
+          </div>
+
+          <div class="dropdown-group">
+            <div class="control-select-wrap">
+              <label>EXPIRY</label>
+              <select id="oc-expiry-select" onchange="loadOptionChain()"></select>
+            </div>
+
+            <div class="control-select-wrap">
+              <label>STRIKES</label>
+              <select id="oc-count-select" onchange="loadOptionChain()">
+                <option value="10">10 ATM</option>
+                <option value="15">15 ATM</option>
+                <option value="20">20 ATM</option>
+                <option value="30">30 ATM</option>
+                <option value="50">50 ATM</option>
+                <option value="ALL">ALL Strikes</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls-right">
+          <div class="spot-card">
+            <span style="font-size: 11px; color: var(--text-dim); font-weight: 700;">SPOT</span>
+            <span class="spot-price" id="oc-spot-price">--</span>
+            <span class="atm-tag" id="oc-atm-tag">ATM --</span>
+          </div>
+          <button class="btn btn-secondary oc-refresh-btn" onclick="loadOptionChain()">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <!-- Option Chain Mobile View Mode Toggle -->
+      <div class="view-mode-selector" id="oc-view-mode">
+        <button class="view-mode-btn" onclick="setOcView('ce')" id="btn-view-ce">🟢 Calls (CE)</button>
+        <button class="view-mode-btn active" onclick="setOcView('all')" id="btn-view-all">All Strikes (CE & PE)</button>
+        <button class="view-mode-btn" onclick="setOcView('pe')" id="btn-view-pe">🔴 Puts (PE)</button>
+      </div>
+
+      <div class="table-container" id="oc-table-container">
+        <table>
+          <thead>
+            <tr>
+              <th colspan="3" class="th-call" style="text-align: center;">CALL OPTIONS (CE)</th>
+              <th class="th-strike" style="width: 120px;">STRIKE</th>
+              <th colspan="3" class="th-put" style="text-align: center;">PUT OPTIONS (PE)</th>
+            </tr>
+            <tr>
+              <th class="th-call">OI</th>
+              <th class="th-call">LTP (₹)</th>
+              <th class="th-call" style="text-align: right;">Action</th>
+              <th class="th-strike">Strike Price</th>
+              <th class="th-put" style="text-align: left;">Action</th>
+              <th class="th-put">LTP (₹)</th>
+              <th class="th-put">OI</th>
+            </tr>
+          </thead>
+          <tbody id="oc-table-body">
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-dim);">
+                Select underlying or authenticate to view live option chain...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB 2: ORDERS & TRADES -->
+    <!-- ========================================================= -->
+    <section id="tab-orders" class="tab-panel">
+      <div class="controls-bar">
+        <div class="controls-left">
+          <button class="btn btn-primary" onclick="openOrderModal()">+ New Custom Order</button>
+          <div class="pill-group">
+            <button class="pill-btn active" onclick="filterOrders('ALL')">All</button>
+            <button class="pill-btn" onclick="filterOrders('OPEN')">Open / Pending</button>
+            <button class="pill-btn" onclick="filterOrders('COMPLETE')">Executed</button>
+          </div>
+        </div>
+        <div class="controls-right">
+          <button class="btn btn-secondary" onclick="loadOrders()">🔄 Refresh Orders</button>
+        </div>
+      </div>
+
+      <h3 style="margin-bottom: 12px; font-size: 15px;">Order Book</h3>
+      <!-- Desktop Table View -->
+      <div class="table-container desktop-only" style="margin-bottom: 30px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">Time</th>
+              <th style="text-align: left;">Order ID</th>
+              <th style="text-align: left;">Symbol</th>
+              <th style="text-align: center;">Side</th>
+              <th style="text-align: center;">Product</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Type</th>
+              <th style="text-align: center;">Status</th>
+              <th style="text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="orders-table-body">
+            <tr>
+              <td colspan="10" style="text-align: center; padding: 30px; color: var(--text-dim);">No orders found.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Mobile Card List View -->
+      <div class="mobile-cards-list mobile-only" id="orders-mobile-list" style="margin-bottom: 28px;">
+        <div style="text-align: center; padding: 30px; color: var(--text-dim);">No orders found.</div>
+      </div>
+
+      <h3 style="margin-bottom: 12px; font-size: 15px;">Trade Book (Executed Trades)</h3>
+      <!-- Desktop Table View -->
+      <div class="table-container desktop-only">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">Trade Time</th>
+              <th style="text-align: left;">Trade ID</th>
+              <th style="text-align: left;">Symbol</th>
+              <th style="text-align: center;">Side</th>
+              <th>Filled Qty</th>
+              <th>Avg Price (₹)</th>
+            </tr>
+          </thead>
+          <tbody id="trades-table-body">
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-dim);">No executed trades today.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- Mobile Card List View -->
+      <div class="mobile-cards-list mobile-only" id="trades-mobile-list">
+        <div style="text-align: center; padding: 30px; color: var(--text-dim);">No executed trades today.</div>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB 3: POSITIONS -->
+    <!-- ========================================================= -->
+    <section id="tab-positions" class="tab-panel">
+      <!-- Premium Compact Positions Summary Bar -->
+      <div class="pos-summary-bar">
+        <div class="summary-stat-col">
+          <span class="sum-label">TOTAL PnL</span>
+          <span class="sum-val" id="pos-total-pnl" style="font-size: 14px; font-weight: 800;">₹0.00</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat-col">
+          <span class="sum-label">Unrealized</span>
+          <span class="sum-val" id="pos-unrealized-pnl">₹0.00</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat-col">
+          <span class="sum-label">Realized</span>
+          <span class="sum-val" id="pos-realized-pnl">₹0.00</span>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-stat-col">
+          <span class="sum-label">Open Pos</span>
+          <span class="sum-val" id="pos-open-count">0</span>
+        </div>
+        <button class="btn-panic-pill" onclick="exitAllPositions()" title="Exit all open positions at market price">
+          ⚠️ Exit All
+        </button>
+      </div>
+
+      <div class="controls-bar pos-controls-bar">
+        <div class="pill-group" id="pos-filter-group">
+          <button class="pill-btn pill-btn-sm active" onclick="filterPositions('ALL')">All (<span id="pos-pill-all-count">0</span>)</button>
+          <button class="pill-btn pill-btn-sm" onclick="filterPositions('OPEN')">Open (<span id="pos-pill-open-count">0</span>)</button>
+          <button class="pill-btn pill-btn-sm" onclick="filterPositions('CLOSED')">Closed (<span id="pos-pill-closed-count">0</span>)</button>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadPositions()">🔄 Refresh</button>
+      </div>
+
+      <!-- Desktop Table View -->
+      <div class="table-container desktop-only">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align: left;">Symbol</th>
+              <th style="text-align: center;">Product</th>
+              <th>Net Qty</th>
+              <th>Buy Avg</th>
+              <th>Sell Avg</th>
+              <th>Live LTP</th>
+              <th>Current PnL (₹)</th>
+              <th style="text-align: center;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="positions-table-body">
+            <tr>
+              <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-dim);">
+                No positions found.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Mobile Card List View -->
+      <div class="mobile-cards-list mobile-only" id="positions-mobile-list">
+        <div style="text-align: center; padding: 40px; color: var(--text-dim);">
+          No positions found.
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= -->
+    <!-- TAB 4: ACCOUNT & FUNDS -->
+    <!-- ========================================================= -->
+    <section id="tab-account" class="tab-panel">
+      <div class="cards-grid">
+        <div class="metric-card">
+          <span class="metric-title">Available Cash Margin</span>
+          <span class="metric-value green" id="acc-avail-cash">₹0.00</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-title">Used / Blocked Margin</span>
+          <span class="metric-value" id="acc-used-margin">₹0.00</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-title">Collateral Margin</span>
+          <span class="metric-value" id="acc-collateral">₹0.00</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-title">Total Account Balance</span>
+          <span class="metric-value" id="acc-total-balance">₹0.00</span>
+        </div>
+      </div>
+
+      <div class="metric-card" style="margin-bottom: 20px;">
+        <span class="metric-title" style="margin-bottom: 12px;">Broker & Gateway Info</span>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">BROKER</div>
+            <div style="font-size: 14px; font-weight: 700;">Kotak Securities (Kotak Neo)</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">CLIENT CODE / UCC</div>
+            <div style="font-size: 14px; font-weight: 700;" id="acc-ucc">--</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">SESSION STATUS</div>
+            <div style="font-size: 14px; font-weight: 700;" id="acc-status">--</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; color: var(--text-dim);">GATEWAY ENDPOINT</div>
+            <div style="font-size: 13px; font-family: monospace; color: var(--text-muted);" id="acc-endpoint">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Static IP / Proxy Settings Card -->
+      <div class="static-ip-card">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+          <div>
+            <h3 style="font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+              🌐 Static IP & Proxy Whitelist (Order Punching)
+            </h3>
+            <span style="font-size: 12px; color: var(--text-dim);">
+              Kotak Neo & SEBI require real orders to be punched from your registered Static IP.
+            </span>
+          </div>
+          <button class="btn btn-secondary" onclick="testOutgoingIp()" id="btn-test-ip">
+            🔍 Check Outgoing IP
+          </button>
+        </div>
+
+        <!-- IP Status Badges -->
+        <div class="ip-status-grid">
+          <div class="ip-status-badge">
+            <div class="ip-badge-label">CONFIGURED STATIC IP</div>
+            <div class="ip-badge-val" style="color: var(--blue);" id="ip-display-static">Not Configured</div>
+          </div>
+          <div class="ip-status-badge">
+            <div class="ip-badge-label">PUBLIC OUTGOING IP (SEEN BY BROKER)</div>
+            <div class="ip-badge-val" style="color: var(--green);" id="ip-display-outgoing">Click "Check Outgoing IP"</div>
+          </div>
+          <div class="ip-status-badge">
+            <div class="ip-badge-label">ORDER ROUTE</div>
+            <div class="ip-badge-val" id="ip-display-route">Direct Line</div>
+          </div>
+        </div>
+
+        <!-- Static IP / Proxy Form -->
+        <form id="static-ip-form" onsubmit="saveStaticIpSettings(event)">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 14px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>STATIC IP ADDRESS</label>
+              <input type="text" id="setting-static-ip" placeholder="e.g. 103.15.24.12" style="font-family: monospace; font-size: 14px;">
+              <span style="font-size: 11px; color: var(--text-dim);">Your registered static IP with Kotak Securities.</span>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>STATIC PROXY IP / URL (Optional)</label>
+              <input type="text" id="setting-proxy-url" placeholder="e.g. http://user:pass@103.15.24.12:8080 or 103.15.24.12:8080" style="font-family: monospace; font-size: 14px;">
+              <span style="font-size: 11px; color: var(--text-dim);">If punching via a proxy tunnel (HTTP/HTTPS/SOCKS5).</span>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 4px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 600;">
+              <input type="checkbox" id="setting-use-proxy" style="width: 17px; height: 17px; accent-color: var(--blue);">
+              Route all API & Order punches through Static Proxy IP
+            </label>
+
+            <button type="submit" class="btn btn-primary" id="btn-save-ip" style="padding: 10px 20px;">
+              💾 Save & Apply Static IP
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: ORDER TICKET -->
+  <!-- ========================================================= -->
+  <div class="modal-backdrop" id="order-modal">
+    <div class="modal-card modal-order-card">
+      <div class="modal-header modal-order-header">
+        <div class="modal-title-with-symbol">
+          <h3 class="modal-title" id="order-modal-title">Place Order</h3>
+          <span class="modal-order-symbol" id="modal-order-symbol-badge">-</span>
+          <span class="modal-order-price" id="modal-order-price-badge">₹0.00</span>
+        </div>
+        <button type="button" class="close-btn" onclick="closeOrderModal()">&times;</button>
+      </div>
+
+      <form id="order-form" onsubmit="submitOrder(event)" class="modal-order-form">
+        <!-- Hidden Symbol field keeps existing form submit logic intact -->
+        <input type="hidden" id="order-symbol" required>
+
+        <!-- Scrollable Body Container -->
+        <div class="modal-order-body">
+          <!-- Side: BUY or SELL -->
+          <div class="form-group form-group-compact">
+            <label>TRANSACTION</label>
+            <div class="radio-row">
+              <div class="radio-card active buy" id="side-buy-btn" onclick="setOrderSide('BUY')">BUY</div>
+              <div class="radio-card" id="side-sell-btn" onclick="setOrderSide('SELL')">SELL</div>
+            </div>
+          </div>
+
+          <!-- Single Line Segmented: PRODUCT -->
+          <div class="form-group form-group-compact">
+            <label>PRODUCT</label>
+            <div class="segmented-control" id="order-product-bar">
+              <button type="button" class="segment-btn" data-prod="MIS" onclick="setOrderProduct('MIS')">MIS</button>
+              <button type="button" class="segment-btn active" data-prod="NRML" onclick="setOrderProduct('NRML')">NRML</button>
+              <button type="button" class="segment-btn" data-prod="CNC" onclick="setOrderProduct('CNC')">CNC</button>
+            </div>
+            <input type="hidden" id="order-product" value="NRML">
+          </div>
+
+          <!-- Single Line Segmented: ORDER TYPE (MKT, LMT, SL, SL-M) -->
+          <div class="form-group form-group-compact">
+            <label>ORDER TYPE</label>
+            <div class="segmented-control" id="order-type-bar">
+              <button type="button" class="segment-btn active" data-type="MARKET" onclick="setOrderType('MARKET')">MKT</button>
+              <button type="button" class="segment-btn" data-type="LIMIT" onclick="setOrderType('LIMIT')">LMT</button>
+              <button type="button" class="segment-btn" data-type="SL" onclick="setOrderType('SL')">SL</button>
+              <button type="button" class="segment-btn" data-type="SL-M" onclick="setOrderType('SL-M')">SL-M</button>
+            </div>
+            <input type="hidden" id="order-type" value="MARKET">
+          </div>
+
+          <!-- QUANTITY (LOTS) -->
+          <div class="form-group form-group-compact">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label>QUANTITY (LOTS)</label>
+              <span style="font-size: 11px; color: var(--text-dim); font-weight: 600;" id="order-lot-hint">Lot size: 65</span>
+            </div>
+            <div style="display: flex; gap: 6px;">
+              <input type="number" id="order-qty" value="65" min="1" step="1" inputmode="numeric" required style="flex: 1; min-width: 0;">
+              <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; font-weight: 600;" onclick="adjustQty(-1)">-1 Lot</button>
+              <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; font-weight: 600;" onclick="adjustQty(1)">+1 Lot</button>
+            </div>
+          </div>
+
+          <!-- Price inputs (shown conditionally for LIMIT, SL, SL-M) -->
+          <div style="display: none; grid-template-columns: 1fr 1fr; gap: 10px;" id="price-row">
+            <div class="form-group form-group-compact" id="limit-price-group" style="display: none;">
+              <label>LIMIT PRICE (₹)</label>
+              <input type="number" id="order-price" step="0.05" value="0" inputmode="decimal">
+            </div>
+            <div class="form-group form-group-compact" id="trigger-price-group" style="display: none;">
+              <label>TRIGGER PRICE (₹)</label>
+              <input type="number" id="order-trigger-price" step="0.05" value="0" inputmode="decimal">
+            </div>
+          </div>
+
+          <!-- Order Source IP Whitelist Indicator -->
+          <div class="order-ip-banner" id="order-ip-banner">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="font-size: 10px; color: var(--text-dim); font-weight: 700;">IP ROUTE</span>
+              <span class="badge" style="font-size: 10px; padding: 2px 6px;" id="order-ip-badge">Static IP Route</span>
+            </div>
+            <div style="font-family: monospace; font-size: 10.5px; font-weight: 600; color: var(--text-main); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" id="order-ip-text">
+              Source IP: Detecting...
+            </div>
+          </div>
+        </div>
+
+        <!-- Sticky Footer Container: Always Visible & Pinned Above Bottom Fold -->
+        <div class="modal-order-footer">
+          <button type="submit" class="btn btn-primary" id="order-submit-btn" style="width: 100%; padding: 13px; font-size: 15px; font-weight: 700; border-radius: 8px; cursor: pointer;">
+            Submit Order
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: KOTAK NEO LOGIN -->
+  <!-- ========================================================= -->
+  <div class="modal-backdrop" id="login-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">Kotak Neo Authentication</h3>
+        <button class="close-btn" onclick="closeLoginModal()">&times;</button>
+      </div>
+
+      <form id="login-form" onsubmit="submitLogin(event)">
+        <div class="form-group">
+          <label>REGISTERED MOBILE NUMBER</label>
+          <input type="tel" id="login-mobile" value="8427817525" required placeholder="10-digit mobile" inputmode="numeric">
+        </div>
+
+        <div class="form-group">
+          <label>6-DIGIT TRADING MPIN</label>
+          <input type="password" id="login-mpin" value="230996" maxlength="6" required placeholder="6-digit MPIN" inputmode="numeric">
+        </div>
+
+        <div class="form-group">
+          <label>6-DIGIT TOTP CODE</label>
+          <input type="text" id="login-totp" maxlength="6" placeholder="Enter code from Authenticator App" inputmode="numeric" style="font-size: 16px; letter-spacing: 2px;">
+          <span style="font-size: 11px; color: var(--text-dim);">
+            Open Google Authenticator or your 2FA app and enter the active 6-digit code.
+          </span>
+        </div>
+
+        <div id="login-msg" style="font-size: 12px; margin-bottom: 12px; display: none;"></div>
+
+        <button type="submit" class="btn btn-primary" id="login-submit-btn" style="width: 100%; padding: 12px;">
+          Authenticate with Kotak Neo
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
