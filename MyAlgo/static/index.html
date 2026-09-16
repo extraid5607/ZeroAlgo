@@ -111,6 +111,24 @@
             <button class="pill-btn" onclick="selectIndex('FINNIFTY')">FINNIFTY</button>
             <button class="pill-btn" onclick="selectIndex('MIDCPNIFTY')">MIDCPNIFTY</button>
             <button class="pill-btn" onclick="selectIndex('SENSEX')">SENSEX</button>
+            
+            <!-- MCX Commodities Dropdown -->
+            <div class="mcx-dropdown-wrap">
+              <select id="mcx-symbol-select" class="mcx-dropdown-select" onchange="selectMcxSymbol(this.value)" title="MCX Commodities">
+                <option value="" disabled selected>🛢️ MCX ▾</option>
+                <option value="CRUDEOIL">CRUDEOIL</option>
+                <option value="CRUDEOILM">CRUDEOILM (Mini)</option>
+                <option value="NATURALGAS">NATURALGAS</option>
+                <option value="NATGASMINI">NATGASMINI</option>
+                <option value="GOLD">GOLD</option>
+                <option value="GOLDM">GOLDM (Mini)</option>
+                <option value="SILVER">SILVER</option>
+                <option value="SILVERM">SILVERM (Mini)</option>
+                <option value="COPPER">COPPER</option>
+                <option value="ZINC">ZINC</option>
+                <option value="ALUMINIUM">ALUMINIUM</option>
+              </select>
+            </div>
           </div>
 
           <div class="dropdown-group">

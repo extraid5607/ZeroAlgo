@@ -71,6 +71,17 @@ let state = {
     FINNIFTY: 25,
     MIDCPNIFTY: 50,
     SENSEX: 20,
+    CRUDEOIL: 100,
+    CRUDEOILM: 10,
+    NATURALGAS: 1250,
+    NATGASMINI: 250,
+    GOLD: 1,
+    GOLDM: 10,
+    SILVER: 30,
+    SILVERM: 5,
+    COPPER: 2500,
+    ZINC: 5000,
+    ALUMINIUM: 5000,
   },
   authenticated: false,
   ocView: 'all',
@@ -606,12 +617,38 @@ function selectIndex(indexName) {
   state.selectedIndex = indexName;
   state.currentLotSize = state.lotSizes[indexName] || 50;
 
+  // Reset MCX dropdown if selected
+  const mcxSelect = document.getElementById('mcx-symbol-select');
+  if (mcxSelect) {
+    mcxSelect.value = '';
+    mcxSelect.classList.remove('active');
+  }
+
   // Update pill buttons
   document.querySelectorAll('#index-pills .pill-btn').forEach(b => {
     b.classList.toggle('active', b.innerText === indexName);
   });
 
   loadExpiries(indexName);
+}
+
+function selectMcxSymbol(sym) {
+  if (!sym) return;
+  state.selectedIndex = sym;
+  state.currentLotSize = state.lotSizes[sym] || 1;
+
+  // Deactivate all index pill buttons
+  document.querySelectorAll('#index-pills .pill-btn').forEach(b => {
+    b.classList.remove('active');
+  });
+
+  // Highlight MCX select as active
+  const mcxSelect = document.getElementById('mcx-symbol-select');
+  if (mcxSelect) {
+    mcxSelect.classList.add('active');
+  }
+
+  loadExpiries(sym);
 }
 
 async function loadExpiries(symbol) {
@@ -1473,7 +1510,14 @@ async function submitOrder(e) {
   btn.disabled = true;
   btn.innerText = 'Submitting...';
 
-  const exch = symbol.toUpperCase().includes('SENSEX') ? 'BFO' : 'NFO';
+  const symUpper = symbol.toUpperCase();
+  const MCX_LIST = ['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI', 'GOLD', 'GOLDM', 'SILVER', 'SILVERM', 'COPPER', 'ZINC', 'ALUMINIUM'];
+  let exch = 'NFO';
+  if (MCX_LIST.some(m => symUpper.startsWith(m))) {
+    exch = 'MCX';
+  } else if (symUpper.includes('SENSEX') || symUpper.includes('BANKEX')) {
+    exch = 'BFO';
+  }
 
   try {
     const res = await fetch('/api/orders', {

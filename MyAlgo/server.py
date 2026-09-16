@@ -10,7 +10,12 @@ sys.path.insert(0, str(BASE_DIR))
 
 from core.account_manager import AccountManager
 from core.option_chain import build_option_chain
-from core.symbol_db import get_supported_indices, get_expiries_for_symbol
+from core.symbol_db import (
+    get_supported_indices,
+    get_expiries_for_symbol,
+    get_mcx_symbols,
+    get_contract_by_symbol,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ZeroAlgo")
@@ -259,6 +264,10 @@ def get_option_chain():
 def get_indices():
     return jsonify({"status": "success", "indices": get_supported_indices()})
 
+@app.route("/api/mcx-symbols", methods=["GET"])
+def get_mcx_symbols_route():
+    return jsonify({"status": "success", "symbols": get_mcx_symbols()})
+
 @app.route("/api/expiries", methods=["GET"])
 def get_expiries():
     symbol = request.args.get("symbol", "NIFTY").upper()
@@ -296,6 +305,20 @@ def place_order():
     if not symbol or quantity <= 0:
         return jsonify({"status": "error", "message": "Valid symbol and quantity required"}), 400
 
+    # Auto-resolve exchange (MCX, BFO, NFO)
+    exchange = data.get("exchange")
+    if not exchange or exchange == "NFO":
+        contract = get_contract_by_symbol(symbol)
+        if contract and contract.get("exchange"):
+            exchange = contract["exchange"]
+        elif any(sym in symbol.upper() for sym in ["CRUDEOIL", "GOLD", "SILVER", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM"]):
+            exchange = "MCX"
+        elif "SENSEX" in symbol.upper():
+            exchange = "BFO"
+        else:
+            exchange = "NFO"
+    data["exchange"] = exchange
+
     # Multi-account order execution
     if target_mode == "all" or (target_mode == "custom" and len(account_ids or []) > 1):
         results = account_mgr.place_order_multi(target_mode, account_ids, data)
@@ -314,7 +337,7 @@ def place_order():
     client = get_active_client()
     success, msg, order_id = client.place_order(
         symbol=symbol,
-        exchange=data.get("exchange", "NFO"),
+        exchange=exchange,
         side=data.get("side", "BUY").upper(),
         product=data.get("product", "MIS").upper(),
         order_type=data.get("order_type", "MARKET").upper(),

@@ -1,9 +1,9 @@
 import logging
 from typing import Dict, Any, List, Optional
-from .symbol_db import get_expiries_for_symbol, get_option_chain_contracts
+from .symbol_db import get_expiries_for_symbol, get_option_chain_contracts, get_spot_token
 from .kotak_client import KotakNeoClient
 
-logger = logging.getLogger("MyAlgo.OptionChain")
+logger = logging.getLogger("ZeroAlgo.OptionChain")
 
 INDEX_CANDIDATES = {
     "NIFTY": ("nse_cm", "Nifty 50"),
@@ -19,19 +19,45 @@ DEFAULT_STRIKE_STEPS = {
     "FINNIFTY": 50,
     "MIDCPNIFTY": 25,
     "SENSEX": 100,
+    "CRUDEOIL": 50,
+    "CRUDEOILM": 50,
+    "GOLD": 100,
+    "GOLDM": 100,
+    "SILVER": 500,
+    "SILVERM": 500,
+    "NATURALGAS": 5,
+    "NATGASMINI": 5,
+    "COPPER": 5,
+    "ZINC": 2,
+    "ALUMINIUM": 2,
 }
 
 def get_underlying_spot(client: KotakNeoClient, underlying: str) -> float:
-    """Fetch live spot price for an index from Kotak Neo."""
+    """Fetch live spot price for an index or commodity from Kotak Neo."""
+    spot_info = get_spot_token(underlying.upper())
+    if spot_info and client.is_authenticated():
+        seg = spot_info.get("brexchange") or "nse_cm"
+        token = spot_info.get("token") or spot_info.get("symbol")
+        try:
+            quotes = client.get_quotes([f"{seg}|{token}"])
+            if quotes:
+                if str(token) in quotes and quotes[str(token)].get("ltp"):
+                    return float(quotes[str(token)]["ltp"])
+                if underlying.upper() in quotes and quotes[underlying.upper()].get("ltp"):
+                    return float(quotes[underlying.upper()]["ltp"])
+                first_q = next(iter(quotes.values()))
+                if first_q and first_q.get("ltp"):
+                    return float(first_q["ltp"])
+        except Exception as e:
+            logger.warning(f"Error fetching spot quote for {underlying}: {e}")
+
     cand = INDEX_CANDIDATES.get(underlying.upper())
-    if cand:
+    if cand and client.is_authenticated():
         seg, neo_name = cand
-    else:
-        seg, neo_name = "nse_cm", underlying
-    query = f"{seg}|{neo_name}"
-    quotes = client.get_quotes([query])
-    if quotes and neo_name in quotes:
-        return float(quotes[neo_name].get("ltp") or 0.0)
+        query = f"{seg}|{neo_name}"
+        quotes = client.get_quotes([query])
+        if quotes and neo_name in quotes:
+            return float(quotes[neo_name].get("ltp") or 0.0)
     return 0.0
 
 def build_option_chain(

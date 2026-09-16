@@ -276,6 +276,50 @@ body {
   font-weight: 700;
 }
 
+.mcx-dropdown-wrap {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.mcx-dropdown-select {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 20px 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2394a3b8' d='M0 0l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+.mcx-dropdown-select:hover {
+  color: var(--text-main);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.mcx-dropdown-select.active {
+  background-color: var(--blue);
+  color: var(--blue-contrast);
+  font-weight: 700;
+  border-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%230b0f17' d='M0 0l5 5 5-5z'/%3E%3C/svg%3E");
+}
+
+.mcx-dropdown-select option {
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  font-weight: 500;
+  padding: 6px;
+}
+
 select, input {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1436,7 +1480,7 @@ tr.atm-row .td-strike {
     display: none;
   }
 
-  .pill-btn {
+  .pill-btn, .mcx-dropdown-select {
     padding: 4px 10px;
     font-size: 11px;
     flex-shrink: 0;

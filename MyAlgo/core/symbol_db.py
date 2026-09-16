@@ -9,6 +9,21 @@ def get_connection():
 def get_supported_indices() -> List[str]:
     return ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"]
 
+def get_mcx_symbols() -> List[str]:
+    return [
+        "CRUDEOIL",
+        "CRUDEOILM",
+        "GOLD",
+        "GOLDM",
+        "SILVER",
+        "SILVERM",
+        "NATURALGAS",
+        "NATGASMINI",
+        "COPPER",
+        "ZINC",
+        "ALUMINIUM"
+    ]
+
 def get_expiries_for_symbol(name: str) -> List[str]:
     """Return sorted available expiry dates for the underlying index/stock (today onwards)."""
     conn = get_connection()
@@ -36,11 +51,19 @@ def get_expiries_for_symbol(name: str) -> List[str]:
     return sorted(future_expiries, key=parse_exp)
 
 def get_spot_token(name: str) -> Optional[Dict[str, Any]]:
-    """Return token and exchange details for index spot price."""
+    """Return token and exchange details for index spot price or commodity spot/future."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT symbol, brsymbol, exchange, brexchange, token FROM symtoken WHERE name=? AND instrumenttype='INDEX' LIMIT 1",
+        "SELECT symbol, brsymbol, exchange, brexchange, token FROM symtoken "
+        "WHERE name=? AND (instrumenttype='INDEX' OR brsymbol LIKE '%COM' OR instrumenttype='FUT') "
+        "ORDER BY "
+        "  CASE "
+        "    WHEN instrumenttype='INDEX' THEN 1 "
+        "    WHEN brsymbol LIKE '%COM' THEN 2 "
+        "    ELSE 3 "
+        "  END, "
+        "  expiry ASC LIMIT 1",
         (name,)
     )
     row = cur.fetchone()
