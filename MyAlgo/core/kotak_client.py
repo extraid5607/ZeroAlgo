@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, Tuple
 import httpx
 
 from .config import (
+    BASE_DIR,
     KOTAK_UCC,
     KOTAK_ACCESS_TOKEN,
     MOBILE_NUMBER,
@@ -23,15 +24,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 
 class KotakNeoClient:
-    def __init__(self):
+    def __init__(
+        self,
+        ucc: Optional[str] = None,
+        access_token: Optional[str] = None,
+        mobile: Optional[str] = None,
+        mpin: Optional[str] = None,
+        totp_secret: Optional[str] = None,
+        session_file: Optional[Path] = None,
+        static_ip: Optional[str] = None,
+        proxy_url: Optional[str] = None,
+        use_proxy: Optional[bool] = None,
+    ):
+        from pathlib import Path
+        self.ucc: str = (ucc if ucc is not None else KOTAK_UCC) or ""
+        self.access_token: str = (access_token if access_token is not None else KOTAK_ACCESS_TOKEN) or ""
+        self.mobile: str = (mobile if mobile is not None else MOBILE_NUMBER) or ""
+        self.mpin: str = (mpin if mpin is not None else MPIN) or ""
+        self.totp_secret: str = (totp_secret if totp_secret is not None else TOTP_SECRET) or ""
+
+        if session_file:
+            self.session_file = Path(session_file)
+        elif self.ucc:
+            self.session_file = BASE_DIR / f"session_{self.ucc}.json"
+        else:
+            self.session_file = SESSION_FILE
+
         self.session_token: Optional[str] = None
         self.session_sid: Optional[str] = None
         self.base_url: Optional[str] = None
-        self.access_token: str = KOTAK_ACCESS_TOKEN
-        self.ucc: str = KOTAK_UCC
-        self.static_ip: str = STATIC_IP or ""
-        self.proxy_url: str = PROXY_URL or ""
-        self.use_proxy: bool = bool(PROXY_URL)
+        self.static_ip: str = static_ip if static_ip is not None else (STATIC_IP or "")
+        self.proxy_url: str = proxy_url if proxy_url is not None else (PROXY_URL or "")
+        self.use_proxy: bool = use_proxy if use_proxy is not None else bool(PROXY_URL)
         self.load_settings()
         self._init_http_client()
         self.load_session()
@@ -141,36 +165,87 @@ class KotakNeoClient:
             "base_url": self.base_url,
             "ucc": self.ucc,
         }
-        with open(SESSION_FILE, "w") as f:
-            json.dump(data, f)
-        logger.info("Session saved to session.json")
+        target = getattr(self, "session_file", None) or SESSION_FILE
+        try:
+            with open(target, "w") as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Session saved to {target}")
+            if target != SESSION_FILE and (not KOTAK_UCC or self.ucc == KOTAK_UCC):
+                try:
+                    with open(SESSION_FILE, "w") as f:
+                        json.dump(data, f, indent=2)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Failed to save session to {target}: {e}")
 
     def load_session(self) -> bool:
-        if SESSION_FILE.exists():
+        target = getattr(self, "session_file", None) or SESSION_FILE
+        if target.exists():
             try:
-                with open(SESSION_FILE, "r") as f:
+                with open(target, "r") as f:
                     data = json.load(f)
+                    file_ucc = (data.get("ucc") or "").strip().upper()
+                    if file_ucc and self.ucc and file_ucc != self.ucc.strip().upper():
+                        logger.warning(f"Session in {target} has UCC={file_ucc}, but client is {self.ucc}. Discarding.")
+                        return False
                     self.session_token = data.get("session_token")
                     self.session_sid = data.get("session_sid")
                     self.base_url = (data.get("base_url") or "").rstrip("/")
                     return bool(self.session_token and self.session_sid and self.base_url)
             except Exception as e:
-                logger.warning(f"Failed to load session: {e}")
+                logger.warning(f"Failed to load session from {target}: {e}")
+        elif SESSION_FILE.exists():
+            try:
+                with open(SESSION_FILE, "r") as f:
+                    data = json.load(f)
+                    file_ucc = (data.get("ucc") or "").strip().upper()
+                    if file_ucc and self.ucc and file_ucc == self.ucc.strip().upper():
+                        self.session_token = data.get("session_token")
+                        self.session_sid = data.get("session_sid")
+                        self.base_url = (data.get("base_url") or "").rstrip("/")
+                        return bool(self.session_token and self.session_sid and self.base_url)
+            except Exception as e:
+                pass
         return False
 
     def is_authenticated(self) -> bool:
         return bool(self.session_token and self.session_sid and self.base_url)
 
-    def login(self, mobile: str, mpin: str, totp: str) -> Tuple[bool, str]:
+    def login(self, mobile: Optional[str] = None, mpin: Optional[str] = None, totp: Optional[str] = None) -> Tuple[bool, str]:
         """Perform 2-step Kotak Neo Trade API authentication (TOTP + MPIN)."""
         try:
-            mobile = mobile.strip().replace("+91", "").replace(" ", "")
-            if mobile.startswith("91") and len(mobile) == 12:
-                mobile = mobile[2:]
-            mobile = f"+91{mobile}"
+            mob = (mobile or getattr(self, "mobile", "") or "").strip()
+            pin = (mpin or getattr(self, "mpin", "") or "").strip()
+            code = (totp or "").strip()
+
+            # Auto-generate TOTP if not provided but secret is present
+            if not code and getattr(self, "totp_secret", ""):
+                sec = str(self.totp_secret).strip().replace(" ", "").upper()
+                if len(sec) == 6 and sec.isdigit():
+                    logger.warning(f"Configured totp_secret for {self.ucc} is a 6-digit number ({sec}), not a permanent Base32 secret key.")
+                else:
+                    try:
+                        import pyotp
+                        code = pyotp.TOTP(sec).now()
+                        logger.info(f"Auto-generated TOTP using TOTP_SECRET for {self.ucc}")
+                    except Exception as e:
+                        logger.warning(f"Could not auto-generate TOTP for {self.ucc}: {e}")
+
+            if not mob:
+                return False, "Registered mobile number is required."
+            if not pin:
+                return False, "6-digit trading MPIN is required."
+            if not code:
+                return False, "6-digit TOTP code is required. Please enter the current code from your Authenticator app."
+
+            mob = mob.replace("+91", "").replace(" ", "")
+            if mob.startswith("91") and len(mob) == 12:
+                mob = mob[2:]
+            mob = f"+91{mob}"
 
             # Step 1: Login with TOTP
-            payload_step1 = json.dumps({"mobileNumber": mobile, "ucc": self.ucc, "totp": str(totp).strip()})
+            payload_step1 = json.dumps({"mobileNumber": mob, "ucc": self.ucc, "totp": str(code).strip()})
             headers_step1 = {
                 "Authorization": self.access_token,
                 "neo-fin-key": "neotradeapi",
@@ -196,7 +271,7 @@ class KotakNeoClient:
             view_sid = data1["data"]["sid"]
 
             # Step 2: Validate with MPIN
-            payload_step2 = json.dumps({"mpin": str(mpin).strip()})
+            payload_step2 = json.dumps({"mpin": str(pin).strip()})
             headers_step2 = {
                 "Authorization": self.access_token,
                 "neo-fin-key": "neotradeapi",
@@ -204,7 +279,7 @@ class KotakNeoClient:
                 "Auth": view_token,
                 "Content-Type": "application/json",
             }
-            logger.info("TOTP validated. Validating MPIN...")
+            logger.info(f"TOTP validated for {self.ucc}. Validating MPIN...")
             resp2 = self.client.post(
                 "https://mis.kotaksecurities.com/login/1.0/tradeApiValidate",
                 headers=headers_step2,
@@ -227,7 +302,7 @@ class KotakNeoClient:
             self.save_session(trading_token, trading_sid, base_url)
             return True, "Login successful"
         except Exception as e:
-            logger.exception("Exception during Kotak login")
+            logger.exception(f"Exception during Kotak login for {self.ucc}")
             return False, str(e)
 
     def _auth_headers(self, content_type: str = "application/json") -> Dict[str, str]:

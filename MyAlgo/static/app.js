@@ -1,6 +1,61 @@
 // =========================================================
-// MyAlgo Trading Terminal Client
+// ZeroAlgo Trading Terminal Client
 // =========================================================
+
+// ---------------------------------------------------------
+// PWA (Progressive Web App) Mobile & Desktop Installation
+// ---------------------------------------------------------
+let deferredInstallPrompt = null;
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('ZeroAlgo Service Worker registered:', reg.scope))
+      .catch(err => console.log('ZeroAlgo Service Worker registration failed:', err));
+  });
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  const desktopBtn = document.getElementById('btn-pwa-install');
+  const mobileBtn = document.getElementById('mobile-btn-pwa-install');
+  if (desktopBtn) desktopBtn.style.display = 'inline-flex';
+  if (mobileBtn) mobileBtn.style.display = 'inline-flex';
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  const desktopBtn = document.getElementById('btn-pwa-install');
+  const mobileBtn = document.getElementById('mobile-btn-pwa-install');
+  if (desktopBtn) desktopBtn.style.display = 'none';
+  if (mobileBtn) mobileBtn.style.display = 'none';
+  showToast('🎉 ZeroAlgo installed successfully on your device!', 'success');
+});
+
+function installPWA() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then((choiceResult) => {
+      if (choiceResult.outcome === 'accepted') {
+        showToast('Installing ZeroAlgo App...', 'info');
+      }
+      deferredInstallPrompt = null;
+      const desktopBtn = document.getElementById('btn-pwa-install');
+      const mobileBtn = document.getElementById('mobile-btn-pwa-install');
+      if (desktopBtn) desktopBtn.style.display = 'none';
+      if (mobileBtn) mobileBtn.style.display = 'none';
+    });
+  } else {
+    // Check if iOS Safari
+    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIos) {
+      alert("To install ZeroAlgo on your iPhone / iPad:\n\n1. Tap the Share button (square with arrow ⎋) at the bottom of Safari.\n2. Scroll down and tap 'Add to Home Screen' ➕.\n3. Tap 'Add' in the top-right corner.");
+    } else {
+      showToast("To install, tap your browser's menu (⋮ or ⚙️) and select 'Install app' or 'Add to Home screen'", "info");
+    }
+  }
+}
 
 let state = {
   activeTab: 'tab-option-chain',
@@ -23,6 +78,10 @@ let state = {
   proxyUrl: '',
   useProxy: false,
   outgoingIp: '',
+  // Multi-account state
+  accounts: [],
+  activeAccountId: '',
+  orderTargetMode: 'active', // 'active' | 'all'
 };
 
 // ---------------------------------------------------------
@@ -30,6 +89,7 @@ let state = {
 // ---------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
+  loadAccounts();
   checkSession();
   loadExpiries(state.selectedIndex);
   loadFunds();
@@ -39,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Background polling intervals
   setInterval(checkSession, 15000);
   setInterval(loadFunds, 10000);
+  setInterval(loadAccounts, 20000);
 
   setInterval(() => {
     if (state.activeTab === 'tab-positions') loadPositions();
@@ -103,6 +164,318 @@ function switchTab(tabId) {
 }
 
 // ---------------------------------------------------------
+// Multi-Account Management
+// ---------------------------------------------------------
+async function loadAccounts() {
+  try {
+    const res = await fetch('/api/accounts');
+    const data = await res.json();
+    if (data.status === 'success') {
+      state.accounts = data.accounts || [];
+      state.activeAccountId = data.active_id || (state.accounts[0] ? state.accounts[0].id : '');
+      renderAccountDropdowns();
+      renderAccountsModalList();
+    }
+  } catch (err) {
+    console.error('Failed to load accounts:', err);
+  }
+}
+
+function renderAccountDropdowns() {
+  const headerSelect = document.getElementById('header-account-select');
+  const mobileSelect = document.getElementById('mobile-account-select');
+  const badgeCount = document.getElementById('accounts-count-badge');
+  const orderAccCount = document.getElementById('order-all-acc-count');
+  const orderActiveUccLabel = document.getElementById('order-active-ucc-label');
+
+  if (badgeCount) badgeCount.innerText = state.accounts.length;
+  if (orderAccCount) orderAccCount.innerText = state.accounts.length;
+
+  const activeAcc = state.accounts.find(a => a.id === state.activeAccountId) || state.accounts[0];
+  if (orderActiveUccLabel && activeAcc) {
+    orderActiveUccLabel.innerText = activeAcc.ucc;
+  }
+
+  const optionsHtml = state.accounts.map(a => {
+    const dot = a.is_authenticated ? '🟢' : '⚪';
+    const sel = a.id === state.activeAccountId ? 'selected' : '';
+    return `<option value="${a.id}" ${sel}>${dot} ${a.name} (${a.ucc})</option>`;
+  }).join('');
+
+  if (headerSelect) headerSelect.innerHTML = optionsHtml;
+  if (mobileSelect) mobileSelect.innerHTML = optionsHtml;
+}
+
+async function switchActiveAccount(accId) {
+  if (!accId) return;
+  try {
+    const res = await fetch('/api/accounts/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accId })
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      state.activeAccountId = accId;
+      state.accounts = data.accounts || state.accounts;
+      showToast(`Active Account: ${data.ucc}`, 'info');
+      renderAccountDropdowns();
+      renderAccountsModalList();
+      checkSession();
+      loadFunds();
+
+      // Clear previous account's rendered positions and orders immediately
+      const posTable = document.getElementById('positions-tbody');
+      const posCards = document.getElementById('positions-cards');
+      if (posTable) posTable.innerHTML = '<tr><td colspan="7" class="loading">Loading positions...</td></tr>';
+      if (posCards) posCards.innerHTML = '<div class="loading">Loading positions...</div>';
+      const ordTable = document.getElementById('orders-tbody');
+      const ordCards = document.getElementById('orders-cards');
+      if (ordTable) ordTable.innerHTML = '<tr><td colspan="8" class="loading">Loading orders...</td></tr>';
+      if (ordCards) ordCards.innerHTML = '<div class="loading">Loading orders...</div>';
+
+      const totalPnlEl = document.getElementById('pos-total-pnl');
+      if (totalPnlEl) totalPnlEl.textContent = '₹0.00';
+      const posCountEl = document.getElementById('tab-open-pos-count');
+      if (posCountEl) posCountEl.textContent = '0';
+
+      loadPositions();
+      loadOrders();
+      if (state.activeTab === 'tab-option-chain') loadOptionChain(true);
+    } else {
+      showToast(data.message || 'Failed to switch account', 'error');
+    }
+  } catch (err) {
+    showToast('Network error switching account', 'error');
+  }
+}
+
+function openAccountsModal() {
+  loadAccounts();
+  const modal = document.getElementById('accounts-modal');
+  if (modal) modal.classList.add('open');
+}
+
+function closeAccountsModal() {
+  const modal = document.getElementById('accounts-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function toggleAddAccountForm(show, editAcc = null) {
+  const card = document.getElementById('add-account-card');
+  const title = document.getElementById('account-form-title');
+  const formId = document.getElementById('form-acc-id');
+  const nameInput = document.getElementById('acc-name-input');
+  const uccInput = document.getElementById('acc-ucc-input');
+  const tokenInput = document.getElementById('acc-token-input');
+  const mobileInput = document.getElementById('acc-mobile-input');
+  const mpinInput = document.getElementById('acc-mpin-input');
+  const totpInput = document.getElementById('acc-totp-input');
+
+  if (!card) return;
+
+  if (show) {
+    card.style.display = 'block';
+    if (editAcc) {
+      title.innerText = `Edit Account: ${editAcc.name}`;
+      formId.value = editAcc.id;
+      nameInput.value = editAcc.name;
+      uccInput.value = editAcc.ucc;
+      tokenInput.value = editAcc.access_token || '';
+      mobileInput.value = editAcc.mobile || '';
+      mpinInput.value = '';
+      totpInput.value = '';
+    } else {
+      title.innerText = 'Add New Kotak Account';
+      formId.value = '';
+      nameInput.value = `Account ${state.accounts.length + 1}`;
+      uccInput.value = '';
+      tokenInput.value = '';
+      mobileInput.value = '';
+      mpinInput.value = '';
+      totpInput.value = '';
+    }
+  } else {
+    card.style.display = 'none';
+  }
+}
+
+async function submitSaveAccount(e) {
+  e.preventDefault();
+  const formId = document.getElementById('form-acc-id').value.trim();
+  const name = document.getElementById('acc-name-input').value.trim();
+  const ucc = document.getElementById('acc-ucc-input').value.trim().toUpperCase();
+  const token = document.getElementById('acc-token-input').value.trim();
+  const mobile = document.getElementById('acc-mobile-input').value.trim();
+  const mpin = document.getElementById('acc-mpin-input').value.trim();
+  const totp = document.getElementById('acc-totp-input').value.trim().toUpperCase();
+
+  const payload = {
+    name,
+    ucc,
+    access_token: token,
+    mobile,
+    mpin,
+    totp_secret: totp,
+  };
+
+  if (totp && totp.length === 6 && /^\d+$/.test(totp)) {
+    if (!confirm(`⚠️ "${totp}" looks like a temporary 6-digit OTP code (which changes every 30 seconds).\n\nThe "TOTP Secret Key" field is only for the permanent Base32 secret (letters like WKTZ7TVCIJU4RTSX...).\n\nIf you do not have the permanent secret key, click OK to leave it blank (you can easily enter your 6-digit OTP when clicking Login).`)) {
+      return;
+    }
+    payload.totp_secret = "";
+  }
+
+  const isEdit = Boolean(formId);
+  const url = isEdit ? `/api/accounts/${formId}` : '/api/accounts';
+  const method = isEdit ? 'PUT' : 'POST';
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      showToast(data.message, 'success');
+      toggleAddAccountForm(false);
+      loadAccounts();
+    } else {
+      showToast(data.message || 'Failed to save account', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving account', 'error');
+  }
+}
+
+function openEditAccount(accId) {
+  const acc = state.accounts.find(a => a.id === accId);
+  if (acc) {
+    toggleAddAccountForm(true, acc);
+  }
+}
+
+async function deleteAccount(accId) {
+  if (!confirm('Are you sure you want to remove this Kotak account?')) return;
+  try {
+    const res = await fetch(`/api/accounts/${accId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      showToast(data.message, 'info');
+      loadAccounts();
+      checkSession();
+    } else {
+      showToast(data.message || 'Failed to delete account', 'error');
+    }
+  } catch (err) {
+    showToast('Network error deleting account', 'error');
+  }
+}
+
+async function loginSingleAccount(accId) {
+  const acc = state.accounts.find(a => a.id === accId);
+  let totp = '';
+
+  // If the account doesn't have a valid permanent TOTP secret key, prompt for current 6-digit code
+  if (!acc || !acc.has_totp_secret) {
+    const code = prompt(`Enter active 6-digit TOTP code for ${acc ? acc.name : 'Account'} (${acc ? acc.ucc : ''}) from your Authenticator app:`);
+    if (!code || !code.trim()) {
+      return; // Cancelled
+    }
+    totp = code.trim();
+  }
+
+  try {
+    showToast(`Authenticating ${acc ? acc.ucc : 'account'} with Kotak Neo...`, 'info');
+    const res = await fetch('/api/accounts/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accId, totp: totp })
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      showToast(`Account ${acc ? acc.ucc : ''} connected successfully!`, 'success');
+      loadAccounts();
+      checkSession();
+      loadFunds();
+    } else {
+      showToast(data.message || 'Login failed', 'error');
+    }
+  } catch (err) {
+    showToast('Network error during login: ' + err.message, 'error');
+  }
+}
+
+async function loginAllAccounts() {
+  const btn = document.getElementById('btn-login-all-acc');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⚡ Logging in...';
+  }
+  showToast('Initiating automated login across all accounts...', 'info');
+  try {
+    const res = await fetch('/api/accounts/login-all', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      const succ = (data.results || []).filter(r => r.success).length;
+      showToast(`Multi-Account Login: ${succ}/${(data.results || []).length} accounts online!`, 'success');
+      loadAccounts();
+      checkSession();
+    } else {
+      showToast('Multi-account login encountered an error', 'error');
+    }
+  } catch (err) {
+    showToast('Network error during multi-account login', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = '⚡ 1-Click Login All';
+    }
+  }
+}
+
+function renderAccountsModalList() {
+  const list = document.getElementById('accounts-cards-list');
+  if (!list) return;
+
+  if (state.accounts.length === 0) {
+    list.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-dim);">No accounts configured. Click "+ Add Kotak Account" above.</div>`;
+    return;
+  }
+
+  list.innerHTML = state.accounts.map(acc => {
+    const isActive = acc.id === state.activeAccountId;
+    const isAuth = acc.is_authenticated;
+    const activeBadge = isActive ? '<span class="active-pill">Active</span>' : '';
+    const statusDot = isAuth ? '<span style="color:var(--green); font-weight:600;">🟢 Online</span>' : '<span style="color:var(--red); font-weight:600;">⚪ Offline</span>';
+
+    return `
+      <div class="account-card ${isActive ? 'is-active' : ''}">
+        <div class="account-card-info">
+          <div class="account-card-title">
+            ${acc.name} ${activeBadge}
+          </div>
+          <div class="account-card-meta">
+            <span class="account-card-ucc">${acc.ucc}</span>
+            <span>•</span>
+            <span>📱 ${acc.mobile || '--'}</span>
+            <span>•</span>
+            <span>${statusDot}</span>
+          </div>
+        </div>
+        <div class="account-card-actions">
+          ${!isActive ? `<button type="button" class="btn btn-secondary btn-sm" onclick="switchActiveAccount('${acc.id}')" title="Set Active">Switch</button>` : ''}
+          ${!isAuth ? `<button type="button" class="btn btn-primary btn-sm" onclick="loginSingleAccount('${acc.id}')" title="${acc.has_totp_secret ? 'Auto Login' : 'Login with OTP'}">${acc.has_totp_secret ? '⚡ Login' : '🔑 Login'}</button>` : ''}
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openEditAccount('${acc.id}')" title="Edit Account">✏️</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="deleteAccount('${acc.id}')" title="Delete Account" ${state.accounts.length <= 1 ? 'disabled style="opacity:0.4;"' : ''}>🗑</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ---------------------------------------------------------
 // Session & Auth
 // ---------------------------------------------------------
 async function checkSession() {
@@ -110,6 +483,12 @@ async function checkSession() {
     const res = await fetch('/api/session');
     const data = await res.json();
     state.authenticated = data.authenticated;
+    if (data.accounts) {
+      state.accounts = data.accounts;
+      if (data.active_id) state.activeAccountId = data.active_id;
+      renderAccountDropdowns();
+      renderAccountsModalList();
+    }
 
     const badge = document.getElementById('conn-badge');
     const statusText = document.getElementById('conn-status');
@@ -981,7 +1360,6 @@ function setOrderSide(side) {
   if (side === 'BUY') {
     buyBtn.className = 'radio-card active buy';
     sellBtn.className = 'radio-card';
-    submitBtn.innerText = 'Submit BUY Order';
     submitBtn.style.background = 'var(--green)';
     if (priceBadge) {
       priceBadge.classList.remove('sell-price');
@@ -990,11 +1368,36 @@ function setOrderSide(side) {
   } else {
     buyBtn.className = 'radio-card';
     sellBtn.className = 'radio-card active sell';
-    submitBtn.innerText = 'Submit SELL Order';
     submitBtn.style.background = 'var(--red)';
     if (priceBadge) {
       priceBadge.classList.remove('buy-price');
       priceBadge.classList.add('sell-price');
+    }
+  }
+  setOrderTarget(state.orderTargetMode || 'active');
+}
+
+function setOrderTarget(mode) {
+  state.orderTargetMode = mode;
+  const activeBtn = document.getElementById('btn-order-target-active');
+  const allBtn = document.getElementById('btn-order-target-all');
+  const modeInput = document.getElementById('order-target-mode');
+
+  if (activeBtn && allBtn) {
+    activeBtn.classList.toggle('active', mode === 'active');
+    allBtn.classList.toggle('active', mode === 'all');
+  }
+  if (modeInput) modeInput.value = mode;
+
+  const submitBtn = document.getElementById('order-submit-btn');
+  if (submitBtn) {
+    const side = state.orderSide || 'BUY';
+    if (mode === 'all') {
+      submitBtn.innerText = `Submit ${side} Order to ALL Accounts (${state.accounts.length})`;
+    } else {
+      const activeAcc = state.accounts.find(a => a.id === state.activeAccountId);
+      const ucc = activeAcc ? activeAcc.ucc : 'Active';
+      submitBtn.innerText = `Submit ${side} Order (${ucc})`;
     }
   }
 }
@@ -1064,9 +1467,11 @@ async function submitOrder(e) {
   const quantity = parseInt(document.getElementById('order-qty').value);
   const price = parseFloat(document.getElementById('order-price').value) || 0.0;
   const trigger_price = parseFloat(document.getElementById('order-trigger-price').value) || 0.0;
+  const target_mode = state.orderTargetMode || 'active';
 
   const btn = document.getElementById('order-submit-btn');
   btn.disabled = true;
+  btn.innerText = 'Submitting...';
 
   const exch = symbol.toUpperCase().includes('SENSEX') ? 'BFO' : 'NFO';
 
@@ -1082,13 +1487,23 @@ async function submitOrder(e) {
         order_type,
         quantity,
         price,
-        trigger_price
+        trigger_price,
+        target_mode,
       })
     });
     const data = await res.json();
 
     if (res.ok && data.status === 'success') {
-      showToast(`Order Placed: #${data.order_id}`, 'success');
+      if (data.multi) {
+        showToast(data.message, 'success');
+        (data.results || []).forEach(r => {
+          if (!r.success) {
+            showToast(`⚠️ ${r.name} (${r.ucc}): ${r.message}`, 'error');
+          }
+        });
+      } else {
+        showToast(`Order Placed: #${data.order_id} (${data.ucc || ''})`, 'success');
+      }
       closeOrderModal();
       loadOrders();
       loadPositions();
@@ -1099,6 +1514,7 @@ async function submitOrder(e) {
     showToast('Network error: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
+    setOrderTarget(state.orderTargetMode || 'active');
   }
 }
 

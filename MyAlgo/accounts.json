@@ -1,0 +1,24 @@
+[
+  {
+    "id": "acc_1",
+    "name": "Main Account",
+    "ucc": "XYH4V",
+    "access_token": "39b1e314-1b3e-4709-98e5-c2c1b1aefb5f",
+    "mobile": "8427817525",
+    "mpin": "230996",
+    "totp_secret": "WKTZ7TVCIJU4RTSXBRUAM4SPBM",
+    "is_active": false,
+    "created_at": 1789548512
+  },
+  {
+    "id": "acc_2",
+    "name": "Account 3",
+    "ucc": "XL2FJ",
+    "access_token": "58a34db6-0746-46d7-a2e4-417cc03ed200",
+    "mobile": "8968930839",
+    "mpin": "143056",
+    "totp_secret": "",
+    "is_active": true,
+    "created_at": 1789549404
+  }
+]

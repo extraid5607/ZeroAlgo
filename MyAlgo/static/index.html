@@ -4,8 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>ZeroAlgo - Lightweight Trading Terminal</title>
+  
+  <!-- PWA & Mobile App Support -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0b0f17">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ZeroAlgo">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+
   <link rel="stylesheet" href="styles.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
   <script>
     (function() {
       var t = localStorage.getItem('zeroalgo_theme') || localStorage.getItem('myalgo_theme') || 'dark';
@@ -25,24 +35,44 @@
       </div>
     </div>
 
-    <!-- Desktop Stats / Actions (Margin in Account tab & PnL in Position tab) -->
+    <!-- Desktop Stats / Actions -->
     <div class="header-stats">
+      <!-- Multi-Account Selector -->
+      <div class="account-selector-wrap" title="Switch Active Kotak Account">
+        <span style="font-size: 13px;">👤</span>
+        <select id="header-account-select" class="header-acc-dropdown" onchange="switchActiveAccount(this.value)">
+          <option value="">Loading accounts...</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="openAccountsModal()" title="Manage Multi-Accounts">
+          👥 Accounts (<span id="accounts-count-badge">1</span>)
+        </button>
+      </div>
+
       <div id="conn-badge" class="badge disconnected">
         <span class="dot"></span>
         <span id="conn-status">Checking...</span>
       </div>
+
+      <button class="btn btn-primary btn-sm pwa-install-btn" id="btn-pwa-install" onclick="installPWA()" style="display:none;" title="Install ZeroAlgo on your device">
+        📲 Install App
+      </button>
+
       <button class="btn btn-secondary" onclick="openLoginModal()">Login / Session</button>
       <button class="btn btn-secondary theme-toggle-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️ Light</button>
     </div>
 
     <!-- Mobile Top Right Action -->
     <div class="mobile-header-actions">
+      <select id="mobile-account-select" class="mobile-acc-dropdown" onchange="switchActiveAccount(this.value)" title="Active Account">
+        <option value="">Accounts...</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="openAccountsModal()" title="Manage Accounts">👥</button>
+      <button class="btn btn-primary btn-sm pwa-install-btn" id="mobile-btn-pwa-install" onclick="installPWA()" style="display:none;" title="Install App">📲</button>
       <div id="mobile-conn-badge" class="badge disconnected" onclick="openLoginModal()">
         <span class="dot"></span>
         <span id="mobile-conn-status">Kotak</span>
       </div>
       <button class="btn btn-secondary btn-sm" id="mobile-theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️</button>
-      <button class="btn btn-secondary btn-sm" onclick="openLoginModal()">🔑 Login</button>
     </div>
   </header>
 
@@ -434,6 +464,23 @@
             </div>
           </div>
 
+          <!-- Account Execution Target (Active vs All Accounts) -->
+          <div class="form-group form-group-compact">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label>ACCOUNT EXECUTION</label>
+              <span style="font-size: 10.5px; color: var(--blue); cursor: pointer; font-weight: 600;" onclick="openAccountsModal()">Manage Accounts 👥</span>
+            </div>
+            <div class="segmented-control" id="order-account-bar">
+              <button type="button" class="segment-btn active" data-target="active" id="btn-order-target-active" onclick="setOrderTarget('active')">
+                Active (<span id="order-active-ucc-label">XYH4V</span>)
+              </button>
+              <button type="button" class="segment-btn" data-target="all" id="btn-order-target-all" onclick="setOrderTarget('all')">
+                All Accounts (<span id="order-all-acc-count">1</span>)
+              </button>
+            </div>
+            <input type="hidden" id="order-target-mode" value="active">
+          </div>
+
           <!-- Single Line Segmented: PRODUCT -->
           <div class="form-group form-group-compact">
             <label>PRODUCT</label>
@@ -501,6 +548,90 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: MANAGE MULTI-ACCOUNTS -->
+  <!-- ========================================================= -->
+  <div class="modal-backdrop" id="accounts-modal">
+    <div class="modal-card modal-card-lg" style="max-width: 580px; width: 95%;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">👥</span>
+          <div>
+            <h3 class="modal-title" style="margin: 0; font-size: 15px;">Manage Kotak Neo Accounts</h3>
+            <div style="font-size: 11px; color: var(--text-dim);">Configure 3+ accounts, 1-click switch & multi-trade</div>
+          </div>
+        </div>
+        <button type="button" class="close-btn" onclick="closeAccountsModal()">&times;</button>
+      </div>
+
+      <!-- Top Action Bar -->
+      <div style="display: flex; gap: 8px; margin-bottom: 12px; justify-content: space-between; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary btn-sm" onclick="toggleAddAccountForm(true)">
+          ➕ Add Kotak Account
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="loginAllAccounts()" id="btn-login-all-acc" title="Auto-login all accounts with TOTP">
+          ⚡ 1-Click Login All
+        </button>
+      </div>
+
+      <!-- Collapsible Add/Edit Account Form -->
+      <div id="add-account-card" style="display: none; background: var(--bg-elevated); border: 1px solid var(--border-highlight); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h4 style="font-size: 12.5px; font-weight: 700; color: var(--blue);" id="account-form-title">Add New Kotak Account</h4>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAddAccountForm(false)">✕ Cancel</button>
+        </div>
+
+        <form id="add-account-form" onsubmit="submitSaveAccount(event)">
+          <input type="hidden" id="form-acc-id" value="">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-group form-group-compact">
+              <label>ACCOUNT NICKNAME</label>
+              <input type="text" id="acc-name-input" placeholder="e.g. Account 2" required>
+            </div>
+            <div class="form-group form-group-compact">
+              <label>KOTAK CLIENT ID (UCC)</label>
+              <input type="text" id="acc-ucc-input" placeholder="e.g. XYH4V" required style="text-transform: uppercase;">
+            </div>
+          </div>
+
+          <div class="form-group form-group-compact">
+            <label>CONSUMER KEY (API SECRET / ACCESS TOKEN)</label>
+            <input type="text" id="acc-token-input" placeholder="From Kotak Developer Portal" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-group form-group-compact">
+              <label>REGISTERED MOBILE</label>
+              <input type="tel" id="acc-mobile-input" placeholder="10-digit mobile" required>
+            </div>
+            <div class="form-group form-group-compact">
+              <label>6-DIGIT MPIN</label>
+              <input type="password" id="acc-mpin-input" placeholder="Trading MPIN" maxlength="6" required>
+            </div>
+          </div>
+
+          <div class="form-group form-group-compact">
+            <label>TOTP SECRET KEY (Optional, for 1-click Auto 2FA)</label>
+            <input type="text" id="acc-totp-input" placeholder="Base32 Key (from Authenticator setup)" style="text-transform: uppercase;">
+            <span style="font-size: 10.5px; color: var(--text-dim); margin-top: 3px; display: block;">
+              Enables 1-click automated login without typing 6-digit OTP codes manually.
+            </span>
+          </div>
+
+          <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="toggleAddAccountForm(false)">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm" id="btn-save-acc">Save Account</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Accounts Cards List -->
+      <div id="accounts-cards-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 48vh; overflow-y: auto; padding-right: 4px;">
+        <!-- Dynamic account cards rendered here -->
+      </div>
     </div>
   </div>
 
