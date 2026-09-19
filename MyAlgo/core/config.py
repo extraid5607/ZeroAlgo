@@ -42,3 +42,4 @@ SETTINGS_FILE = BASE_DIR / "settings.json"
 
 STATIC_IP = os.getenv("STATIC_IP", "")
 PROXY_URL = os.getenv("PROXY_URL", "") or os.getenv("HTTP_PROXY", "") or os.getenv("HTTPS_PROXY", "")
+MASTER_PIN = str(os.getenv("MASTER_PIN", "4418")).strip()

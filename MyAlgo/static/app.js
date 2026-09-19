@@ -98,27 +98,271 @@ let state = {
   basket: [],
   basketTargetMode: 'active', // 'active' | 'all'
   latestChainData: null,
+  terminalLocked: true,
 };
+
+// ---------------------------------------------------------
+// Terminal Security & Master PIN Authentication
+// ---------------------------------------------------------
+const TERMINAL_AUTH_KEY = 'zeroalgo_terminal_token';
+
+function getTerminalToken() {
+  return localStorage.getItem(TERMINAL_AUTH_KEY) || sessionStorage.getItem(TERMINAL_AUTH_KEY) || '';
+}
+
+function setTerminalToken(token, remember) {
+  if (remember) {
+    localStorage.setItem(TERMINAL_AUTH_KEY, token);
+    sessionStorage.removeItem(TERMINAL_AUTH_KEY);
+  } else {
+    sessionStorage.setItem(TERMINAL_AUTH_KEY, token);
+    localStorage.removeItem(TERMINAL_AUTH_KEY);
+  }
+}
+
+function clearTerminalToken() {
+  localStorage.removeItem(TERMINAL_AUTH_KEY);
+  sessionStorage.removeItem(TERMINAL_AUTH_KEY);
+}
+
+// Global fetch interceptor to attach X-Terminal-Token and intercept 401
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  let [resource, config] = args;
+  config = config ? { ...config } : {};
+  config.headers = config.headers ? new Headers(config.headers) : new Headers();
+
+  const token = getTerminalToken();
+  if (token && !config.headers.has('X-Terminal-Token')) {
+    config.headers.set('X-Terminal-Token', token);
+  }
+
+  const response = await originalFetch(resource, config);
+
+  const urlStr = typeof resource === 'string' ? resource : (resource ? resource.url : '');
+  if (response.status === 401 && urlStr.includes('/api/') && !urlStr.includes('/api/auth/pin')) {
+    setTerminalLocked(true);
+  }
+
+  return response;
+};
+
+function setTerminalLocked(locked) {
+  state.terminalLocked = locked;
+  const modal = document.getElementById('terminal-lock-modal');
+  const errorEl = document.getElementById('terminal-lock-error');
+  const pinInput = document.getElementById('terminal-pin-input');
+
+  if (modal) {
+    if (locked) {
+      modal.style.display = 'flex';
+      if (errorEl) errorEl.style.display = 'none';
+      if (pinInput) {
+        pinInput.value = '';
+        updatePinDisplay('');
+        setTimeout(() => pinInput.focus(), 150);
+      }
+    } else {
+      modal.style.display = 'none';
+      if (pinInput) pinInput.value = '';
+    }
+  }
+}
+
+function onPinInput(val) {
+  val = val.replace(/\D/g, '').slice(0, 8);
+  const pinInput = document.getElementById('terminal-pin-input');
+  if (pinInput && pinInput.value !== val) {
+    pinInput.value = val;
+  }
+  updatePinDisplay(val);
+  if (val.length === 4) {
+    submitTerminalPin(val);
+  }
+}
+
+function updatePinDisplay(val) {
+  const dots = document.querySelectorAll('#pin-dots-display .pin-dot');
+  dots.forEach((dot, index) => {
+    if (index < val.length) {
+      dot.classList.add('filled');
+    } else {
+      dot.classList.remove('filled');
+    }
+  });
+}
+
+function keypadPress(digit) {
+  const pinInput = document.getElementById('terminal-pin-input');
+  if (!pinInput) return;
+  if (pinInput.value.length >= 8) return;
+  const newVal = (pinInput.value + digit).slice(0, 8);
+  pinInput.value = newVal;
+  onPinInput(newVal);
+}
+
+function keypadClear() {
+  const pinInput = document.getElementById('terminal-pin-input');
+  if (!pinInput) return;
+  pinInput.value = '';
+  onPinInput('');
+}
+
+function keypadBackspace() {
+  const pinInput = document.getElementById('terminal-pin-input');
+  if (!pinInput) return;
+  const newVal = pinInput.value.slice(0, -1);
+  pinInput.value = newVal;
+  onPinInput(newVal);
+}
+
+function handlePinSubmit(e) {
+  if (e) e.preventDefault();
+  const pinInput = document.getElementById('terminal-pin-input');
+  const pin = pinInput ? pinInput.value.trim() : '';
+  submitTerminalPin(pin);
+}
+
+async function submitTerminalPin(pin) {
+  const errorEl = document.getElementById('terminal-lock-error');
+  const cardEl = document.querySelector('.terminal-lock-card');
+  const unlockBtn = document.getElementById('btn-unlock-terminal');
+  const rememberCheckbox = document.getElementById('terminal-remember-device');
+  const remember = rememberCheckbox ? rememberCheckbox.checked : true;
+
+  if (!pin) {
+    if (errorEl) {
+      errorEl.textContent = 'Please enter Master PIN';
+      errorEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (unlockBtn) {
+    unlockBtn.disabled = true;
+    unlockBtn.textContent = 'Verifying...';
+  }
+
+  try {
+    const res = await originalFetch('/api/auth/pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, remember })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.status === 'success' && data.token) {
+      setTerminalToken(data.token, remember);
+      setTerminalLocked(false);
+      showToast('🔓 Terminal Unlocked', 'success');
+      onTerminalUnlocked();
+    } else {
+      if (errorEl) {
+        errorEl.textContent = data.message || 'Incorrect Master PIN. Access Denied.';
+        errorEl.style.display = 'block';
+      }
+      if (cardEl) {
+        cardEl.classList.add('shake-card');
+        setTimeout(() => cardEl.classList.remove('shake-card'), 500);
+      }
+      keypadClear();
+    }
+  } catch (err) {
+    if (errorEl) {
+      errorEl.textContent = 'Network error connecting to server';
+      errorEl.style.display = 'block';
+    }
+  } finally {
+    if (unlockBtn) {
+      unlockBtn.disabled = false;
+      unlockBtn.textContent = '🔓 Unlock Terminal';
+    }
+  }
+}
+
+async function checkTerminalAuth() {
+  const token = getTerminalToken();
+  if (!token) {
+    setTerminalLocked(true);
+    return false;
+  }
+
+  try {
+    const res = await originalFetch('/api/auth/check', {
+      headers: { 'X-Terminal-Token': token }
+    });
+    const data = await res.json();
+    if (res.ok && data.authenticated) {
+      setTerminalLocked(false);
+      onTerminalUnlocked();
+      return true;
+    } else {
+      clearTerminalToken();
+      setTerminalLocked(true);
+      return false;
+    }
+  } catch (err) {
+    setTerminalLocked(true);
+    return false;
+  }
+}
+
+async function lockTerminal() {
+  const token = getTerminalToken();
+  if (token) {
+    try {
+      await originalFetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'X-Terminal-Token': token }
+      });
+    } catch (e) {}
+  }
+  clearTerminalToken();
+  setTerminalLocked(true);
+  showToast('🔒 Terminal Locked', 'info');
+}
+
+let terminalDataInitialized = false;
+function onTerminalUnlocked() {
+  if (!terminalDataInitialized) {
+    terminalDataInitialized = true;
+    loadAccounts();
+    checkSession();
+    loadExpiries(state.selectedIndex);
+    loadFunds();
+    loadStaticIpSettings();
+    testOutgoingIp();
+    loadBasketFromStorage();
+  } else {
+    loadAccounts();
+    checkSession();
+    loadFunds();
+    if (state.activeTab === 'tab-positions') loadPositions();
+    if (state.activeTab === 'tab-orders') loadOrders();
+    if (state.activeTab === 'tab-option-chain' && state.authenticated) loadOptionChain(true);
+  }
+}
 
 // ---------------------------------------------------------
 // Initialization
 // ---------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  loadAccounts();
-  checkSession();
-  loadExpiries(state.selectedIndex);
-  loadFunds();
-  loadStaticIpSettings();
-  testOutgoingIp();
-  loadBasketFromStorage();
+  checkTerminalAuth();
 
-  // Background polling intervals
-  setInterval(checkSession, 15000);
-  setInterval(loadFunds, 10000);
-  setInterval(loadAccounts, 20000);
+  // Background polling intervals - only active when terminal is unlocked
+  setInterval(() => {
+    if (!state.terminalLocked) checkSession();
+  }, 15000);
+  setInterval(() => {
+    if (!state.terminalLocked) loadFunds();
+  }, 10000);
+  setInterval(() => {
+    if (!state.terminalLocked) loadAccounts();
+  }, 20000);
 
   setInterval(() => {
+    if (state.terminalLocked) return;
     if (state.activeTab === 'tab-positions') loadPositions();
     if (state.activeTab === 'tab-orders') loadOrders();
     if (state.activeTab === 'tab-option-chain' && state.authenticated) loadOptionChain(true);

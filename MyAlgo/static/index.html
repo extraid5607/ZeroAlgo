@@ -59,6 +59,9 @@
 
       <button class="btn btn-secondary" onclick="openLoginModal()">Login / Session</button>
       <button class="btn btn-secondary theme-toggle-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️ Light</button>
+      <button class="btn btn-secondary btn-sm" onclick="lockTerminal()" title="Lock Terminal (Master PIN)" style="display: inline-flex; align-items: center; gap: 4px;">
+        🔒 Lock
+      </button>
     </div>
 
     <!-- Mobile Top Right Action -->
@@ -73,6 +76,7 @@
         <span id="mobile-conn-status">Kotak</span>
       </div>
       <button class="btn btn-secondary btn-sm" id="mobile-theme-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme">☀️</button>
+      <button class="btn btn-secondary btn-sm" onclick="lockTerminal()" title="Lock Terminal" style="padding: 5px 8px;">🔒</button>
     </div>
   </header>
 
@@ -720,6 +724,81 @@
           Authenticate with Kotak Neo
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL: TERMINAL SECURITY LOCK SCREEN (MASTER PIN) -->
+  <!-- ========================================================= -->
+  <div class="terminal-lock-overlay" id="terminal-lock-modal" style="display: none;">
+    <div class="terminal-lock-card">
+      <div class="lock-brand">
+        <div class="lock-icon-wrap">
+          <span class="lock-shield-icon">🛡️</span>
+          <span class="lock-padlock-icon">🔒</span>
+        </div>
+        <h2 class="lock-title">ZeroAlgo Terminal</h2>
+        <p class="lock-subtitle">Security Authentication</p>
+      </div>
+
+      <div class="lock-badge-wrap">
+        <span class="lock-security-badge">● MASTER ACCESS PROTECTED</span>
+      </div>
+
+      <form id="terminal-pin-form" onsubmit="handlePinSubmit(event)">
+        <!-- PIN Dots indicator -->
+        <div class="pin-display-dots" id="pin-dots-display">
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+        </div>
+
+        <!-- PIN Input -->
+        <input type="password" 
+               id="terminal-pin-input" 
+               class="terminal-pin-input"
+               maxlength="8" 
+               pattern="[0-9]*" 
+               inputmode="numeric" 
+               autocomplete="off" 
+               placeholder="Enter 4-Digit PIN"
+               oninput="onPinInput(this.value)"
+               autofocus>
+
+        <!-- Numeric Touch Keypad -->
+        <div class="lock-keypad">
+          <button type="button" class="keypad-btn" onclick="keypadPress('1')">1</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('2')">2</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('3')">3</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('4')">4</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('5')">5</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('6')">6</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('7')">7</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('8')">8</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('9')">9</button>
+          <button type="button" class="keypad-btn keypad-func" onclick="keypadClear()">C</button>
+          <button type="button" class="keypad-btn" onclick="keypadPress('0')">0</button>
+          <button type="button" class="keypad-btn keypad-func" onclick="keypadBackspace()">⌫</button>
+        </div>
+
+        <div class="lock-remember-row">
+          <label class="lock-remember-label">
+            <input type="checkbox" id="terminal-remember-device" checked>
+            <span>Remember this device (30 Days)</span>
+          </label>
+        </div>
+
+        <div id="terminal-lock-error" class="lock-error-msg" style="display: none;"></div>
+
+        <button type="submit" class="btn btn-primary btn-unlock" id="btn-unlock-terminal">
+          🔓 Unlock Terminal
+        </button>
+      </form>
+
+      <div class="lock-footer-info">
+        <span>Protected Private Terminal</span>
+      </div>
     </div>
   </div>
 

@@ -1,6 +1,9 @@
+import json
 import logging
 import os
+import secrets
 import sys
+import time
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -9,6 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 from core.account_manager import AccountManager
+from core.config import MASTER_PIN
 from core.option_chain import build_option_chain
 from core.symbol_db import (
     get_supported_indices,
@@ -22,6 +26,71 @@ logger = logging.getLogger("ZeroAlgo")
 
 app = Flask(__name__, static_folder="static")
 account_mgr = AccountManager()
+
+# ---------------------------------------------------------
+# Terminal Security Session Management (Master PIN: 4418)
+# ---------------------------------------------------------
+AUTH_TOKENS_FILE = BASE_DIR / ".auth_tokens.json"
+
+
+def load_auth_tokens():
+    if AUTH_TOKENS_FILE.exists():
+        try:
+            with open(AUTH_TOKENS_FILE, "r") as f:
+                data = json.load(f)
+                now = time.time()
+                return {k: v for k, v in data.items() if v.get("expires_at", 0) > now}
+        except Exception:
+            pass
+    return {}
+
+
+def save_auth_tokens(tokens):
+    try:
+        with open(AUTH_TOKENS_FILE, "w") as f:
+            json.dump(tokens, f)
+    except Exception:
+        pass
+
+
+ACTIVE_SESSIONS = load_auth_tokens()
+
+
+def is_valid_token(token):
+    if not token or not isinstance(token, str):
+        return False
+    sess = ACTIVE_SESSIONS.get(token)
+    if not sess:
+        return False
+    if time.time() > sess.get("expires_at", 0):
+        ACTIVE_SESSIONS.pop(token, None)
+        save_auth_tokens(ACTIVE_SESSIONS)
+        return False
+    return True
+
+
+@app.before_request
+def check_terminal_auth():
+    # Only protect /api/* routes, excluding /api/auth/*
+    if not request.path.startswith("/api/"):
+        return None
+    if request.path.startswith("/api/auth/"):
+        return None
+
+    # Check header or cookie
+    token = request.headers.get("X-Terminal-Token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("terminal_token")
+
+    if not is_valid_token(token):
+        return jsonify({
+            "status": "unauthorized",
+            "message": "Terminal is locked. Master PIN required."
+        }), 401
 
 
 def get_active_client():
@@ -49,6 +118,74 @@ def service_worker():
 @app.route("/<path:path>")
 def static_proxy(path):
     return send_from_directory(app.static_folder, path)
+
+
+# ---------------------------------------------------------
+# Terminal Security Endpoints (Master PIN)
+# ---------------------------------------------------------
+@app.route("/api/auth/pin", methods=["POST"])
+def auth_verify_pin():
+    data = request.json or {}
+    pin = str(data.get("pin", "")).strip()
+    remember = bool(data.get("remember", False))
+
+    if not pin:
+        return jsonify({"status": "error", "message": "PIN is required"}), 400
+
+    if pin != MASTER_PIN:
+        return jsonify({"status": "error", "message": "Incorrect Master PIN. Access Denied."}), 401
+
+    token = secrets.token_hex(24)
+    duration = (30 * 86400) if remember else 86400
+    now = time.time()
+    ACTIVE_SESSIONS[token] = {
+        "created_at": now,
+        "expires_at": now + duration
+    }
+    save_auth_tokens(ACTIVE_SESSIONS)
+
+    resp = jsonify({
+        "status": "success",
+        "message": "Terminal unlocked successfully",
+        "token": token,
+        "expires_in": duration
+    })
+    resp.set_cookie("terminal_token", token, max_age=duration, httponly=False, samesite="Lax")
+    return resp
+
+
+@app.route("/api/auth/check", methods=["GET"])
+def auth_check():
+    token = request.headers.get("X-Terminal-Token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("terminal_token")
+
+    if is_valid_token(token):
+        return jsonify({"status": "success", "authenticated": True})
+    return jsonify({"status": "unauthorized", "authenticated": False}), 401
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    token = request.headers.get("X-Terminal-Token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("terminal_token")
+
+    if token:
+        ACTIVE_SESSIONS.pop(token, None)
+        save_auth_tokens(ACTIVE_SESSIONS)
+
+    resp = jsonify({"status": "success", "message": "Terminal locked successfully"})
+    resp.delete_cookie("terminal_token")
+    return resp
 
 
 # ---------------------------------------------------------
