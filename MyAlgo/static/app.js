@@ -99,6 +99,9 @@ let state = {
   basketTargetMode: 'active', // 'active' | 'all'
   latestChainData: null,
   terminalLocked: true,
+  positionsFilter: 'ALL',
+  positionsExchangeFilter: 'ALL',
+  positionsSearchQuery: '',
 };
 
 // ---------------------------------------------------------
@@ -1315,12 +1318,53 @@ async function cancelOrder(orderId) {
 let rawPositions = [];
 let prevPosPrices = {};
 
+function getPositionExchangeCategory(pos) {
+  if (pos && (pos.exchange === 'MCX' || pos.exchange === 'BSE' || pos.exchange === 'NSE')) {
+    return pos.exchange;
+  }
+  const sym = ((pos && pos.symbol) || '').toUpperCase();
+  const exSeg = ((pos && (pos.ex_seg || pos.exchange)) || '').toLowerCase();
+  const MCX_LIST = ['CRUDEOIL', 'CRUDEOILM', 'NATURALGAS', 'NATGASMINI', 'GOLD', 'GOLDM', 'SILVER', 'SILVERM', 'COPPER', 'ZINC', 'ALUMINIUM'];
+  if (exSeg.includes('mcx') || MCX_LIST.some(m => sym.startsWith(m))) return 'MCX';
+  if (exSeg.includes('bse') || sym.includes('SENSEX') || sym.includes('BANKEX')) return 'BSE';
+  return 'NSE';
+}
+
 function filterPositions(filter) {
   state.positionsFilter = filter;
   document.querySelectorAll('#pos-filter-group .pill-btn').forEach(b => {
-    b.classList.toggle('active', b.getAttribute('onclick').includes(filter));
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${filter}'`));
   });
   renderPositions(rawPositions);
+}
+
+function filterPositionsExchange(exch) {
+  state.positionsExchangeFilter = exch;
+  document.querySelectorAll('#pos-exchange-group .pill-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${exch}'`));
+  });
+  renderPositions(rawPositions);
+}
+
+function onPositionSearch(query) {
+  state.positionsSearchQuery = query || '';
+  const clearBtn = document.getElementById('pos-search-clear');
+  if (clearBtn) {
+    clearBtn.style.display = (query && query.trim().length > 0) ? 'flex' : 'none';
+  }
+  renderPositions(rawPositions);
+}
+
+function clearPositionSearch() {
+  const input = document.getElementById('pos-search-input');
+  if (input) input.value = '';
+  onPositionSearch('');
+  if (input) input.focus();
+}
+
+function focusPositionSearch() {
+  const input = document.getElementById('pos-search-input');
+  if (input) input.focus();
 }
 
 async function loadPositions() {
@@ -1382,7 +1426,7 @@ function renderPositions(positions) {
   const openCount = rawPositions.filter(p => (p.net_qty || 0) !== 0).length;
   const closedCount = rawPositions.length - openCount;
 
-  // Update filter pills count
+  // Update Status filter pills count
   const pillAll = document.getElementById('pos-pill-all-count');
   if (pillAll) pillAll.innerText = rawPositions.length;
   const pillOpen = document.getElementById('pos-pill-open-count');
@@ -1390,17 +1434,57 @@ function renderPositions(positions) {
   const pillClosed = document.getElementById('pos-pill-closed-count');
   if (pillClosed) pillClosed.innerText = closedCount;
 
-  // Filter based on active selection
+  // Update Exchange segment filter pills count
+  const nseCount = rawPositions.filter(p => getPositionExchangeCategory(p) === 'NSE').length;
+  const bseCount = rawPositions.filter(p => getPositionExchangeCategory(p) === 'BSE').length;
+  const mcxCount = rawPositions.filter(p => getPositionExchangeCategory(p) === 'MCX').length;
+
+  const exchAll = document.getElementById('pos-exch-all-count');
+  if (exchAll) exchAll.innerText = rawPositions.length;
+  const exchNse = document.getElementById('pos-exch-nse-count');
+  if (exchNse) exchNse.innerText = nseCount;
+  const exchBse = document.getElementById('pos-exch-bse-count');
+  if (exchBse) exchBse.innerText = bseCount;
+  const exchMcx = document.getElementById('pos-exch-mcx-count');
+  if (exchMcx) exchMcx.innerText = mcxCount;
+
+  // Filter 1: Status Filter (ALL / OPEN / CLOSED)
   const filter = state.positionsFilter || 'ALL';
   let filtered = rawPositions;
   if (filter === 'OPEN') filtered = rawPositions.filter(p => (p.net_qty || 0) !== 0);
   if (filter === 'CLOSED') filtered = rawPositions.filter(p => (p.net_qty || 0) === 0);
 
-  // Deterministic stable sorting: Open positions first, then alphabetically by symbol
+  // Filter 2: Exchange Category (ALL / NSE / BSE / MCX)
+  const exchFilter = state.positionsExchangeFilter || 'ALL';
+  if (exchFilter !== 'ALL') {
+    filtered = filtered.filter(p => getPositionExchangeCategory(p) === exchFilter);
+  }
+
+  // Filter 3: Search Query Filter
+  const query = (state.positionsSearchQuery || '').trim().toUpperCase();
+  if (query) {
+    filtered = filtered.filter(p => {
+      const sym = (p.symbol || '').toUpperCase();
+      const prod = (p.product || '').toUpperCase();
+      const exch = getPositionExchangeCategory(p);
+      return sym.includes(query) || prod.includes(query) || exch.includes(query);
+    });
+  }
+
+  // Deterministic stable sorting:
+  // 1. Open positions first, then closed
+  // 2. Exchange segment order: NSE (1), BSE (2), MCX (3)
+  // 3. Alphabetically by symbol
+  const exchOrder = { NSE: 1, BSE: 2, MCX: 3 };
   filtered.sort((a, b) => {
     const aClosed = (a.net_qty || 0) === 0 ? 1 : 0;
     const bClosed = (b.net_qty || 0) === 0 ? 1 : 0;
     if (aClosed !== bClosed) return aClosed - bClosed;
+
+    const aExch = exchOrder[getPositionExchangeCategory(a)] || 99;
+    const bExch = exchOrder[getPositionExchangeCategory(b)] || 99;
+    if (aExch !== bExch) return aExch - bExch;
+
     return (a.symbol || '').localeCompare(b.symbol || '');
   });
 
@@ -1470,8 +1554,11 @@ function renderPositionsDesktopTable(positions) {
     row.style.cursor = 'pointer';
     row.onclick = () => openPositionActions(p.symbol, p.product);
 
+    const exch = getPositionExchangeCategory(p);
+    const exchClass = exch === 'MCX' ? 'tag-exch-mcx' : (exch === 'BSE' ? 'tag-exch-bse' : 'tag-exch-nse');
+
     // In-place updates to avoid flicker
-    row.querySelector('.col-sym').textContent = p.symbol;
+    row.querySelector('.col-sym').innerHTML = `<span class="badge-micro ${exchClass}" style="margin-right: 6px;">${exch}</span><span style="font-weight: 700;">${p.symbol}</span>`;
     row.querySelector('.col-prod').textContent = p.product;
     row.querySelector('.col-qty').innerHTML = sideBadge;
     row.querySelector('.col-buy').textContent = `₹${Number(p.buy_avg || 0).toFixed(2)}`;
@@ -1540,6 +1627,9 @@ function renderPositionsMobileCards(positions) {
     const sideText = netQty > 0 ? `+${netQty}` : netQty < 0 ? `${netQty}` : '0';
     const avgPrice = netQty >= 0 ? Number(p.buy_avg || 0).toFixed(2) : Number(p.sell_avg || 0).toFixed(2);
 
+    const exch = getPositionExchangeCategory(p);
+    const exchClass = exch === 'MCX' ? 'tag-exch-mcx' : (exch === 'BSE' ? 'tag-exch-bse' : 'tag-exch-nse');
+
     let card = container.querySelector(`.pos-card[data-pos-id="${posId}"]`);
     if (!card) {
       card = document.createElement('div');
@@ -1554,6 +1644,7 @@ function renderPositionsMobileCards(positions) {
               <span class="badge-micro ${sideClass} card-qty-badge">${sideText}</span>
             </div>
             <div class="pos-sub-tags">
+              <span class="badge-micro ${exchClass}">${exch}</span>
               <span class="badge-micro tag-prod">${p.product}</span>
               <span class="pos-meta-text">Avg ₹${avgPrice} • LTP <span class="card-ltp">₹${ltp.toFixed(2)}</span></span>
             </div>
@@ -1588,9 +1679,13 @@ function renderPositionsMobileCards(positions) {
         qtyBadge.textContent = sideText;
       }
 
-      const metaEl = card.querySelector('.pos-meta-text');
-      if (metaEl) {
-        metaEl.innerHTML = `Avg ₹${avgPrice} • LTP <span class="card-ltp">₹${ltp.toFixed(2)}</span>`;
+      const subTagsEl = card.querySelector('.pos-sub-tags');
+      if (subTagsEl) {
+        subTagsEl.innerHTML = `
+          <span class="badge-micro ${exchClass}">${exch}</span>
+          <span class="badge-micro tag-prod">${p.product}</span>
+          <span class="pos-meta-text">Avg ₹${avgPrice} • LTP <span class="card-ltp">₹${ltp.toFixed(2)}</span></span>
+        `;
       }
 
       const ltpEl = card.querySelector('.card-ltp');

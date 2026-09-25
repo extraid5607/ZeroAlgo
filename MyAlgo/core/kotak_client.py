@@ -544,9 +544,20 @@ class KotakNeoClient:
                 prod = p.get("prod", "")
                 tok = p.get("tok", "")
 
+                # Accurately tag exchange segment: MCX, BSE, or NSE
+                ex_seg_lower = (ex_seg or "").lower()
+                sym_upper = (sym or "").upper()
+                mcx_syms = ["CRUDEOIL", "NATURALGAS", "NATGASMINI", "GOLD", "SILVER", "COPPER", "ZINC", "ALUMINIUM"]
+                if "mcx" in ex_seg_lower or any(sym_upper.startswith(m) for m in mcx_syms):
+                    exch = "MCX"
+                elif "bse" in ex_seg_lower or "SENSEX" in sym_upper or "BANKEX" in sym_upper:
+                    exch = "BSE"
+                else:
+                    exch = "NSE"
+
                 pos_item = {
                     "symbol": sym,
-                    "exchange": "NFO" if "fo" in ex_seg else "NSE",
+                    "exchange": exch,
                     "product": prod,
                     "net_qty": net_qty,
                     "buy_qty": buy_qty,

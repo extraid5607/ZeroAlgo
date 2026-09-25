@@ -336,12 +336,31 @@
       </div>
 
       <div class="controls-bar pos-controls-bar">
-        <div class="pill-group" id="pos-filter-group">
+        <!-- Exchange Segment Filter Pills -->
+        <div class="pill-group" id="pos-exchange-group" title="Filter by Exchange Segment">
+          <button class="pill-btn pill-btn-sm active" onclick="filterPositionsExchange('ALL')">ALL (<span id="pos-exch-all-count">0</span>)</button>
+          <button class="pill-btn pill-btn-sm" onclick="filterPositionsExchange('NSE')">NSE (<span id="pos-exch-nse-count">0</span>)</button>
+          <button class="pill-btn pill-btn-sm" onclick="filterPositionsExchange('BSE')">BSE (<span id="pos-exch-bse-count">0</span>)</button>
+          <button class="pill-btn pill-btn-sm" onclick="filterPositionsExchange('MCX')">MCX (<span id="pos-exch-mcx-count">0</span>)</button>
+        </div>
+
+        <!-- Status Filter Pills -->
+        <div class="pill-group" id="pos-filter-group" title="Filter by Status">
           <button class="pill-btn pill-btn-sm active" onclick="filterPositions('ALL')">All (<span id="pos-pill-all-count">0</span>)</button>
           <button class="pill-btn pill-btn-sm" onclick="filterPositions('OPEN')">Open (<span id="pos-pill-open-count">0</span>)</button>
           <button class="pill-btn pill-btn-sm" onclick="filterPositions('CLOSED')">Closed (<span id="pos-pill-closed-count">0</span>)</button>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="loadPositions()">🔄 Refresh</button>
+
+        <!-- Search Bar with Search Icon & Clear Button -->
+        <div class="pos-search-wrap">
+          <div class="pos-search-box">
+            <button type="button" class="pos-search-btn" onclick="focusPositionSearch()" title="Search Contracts">🔍</button>
+            <input type="text" id="pos-search-input" placeholder="Search contract, strike..." oninput="onPositionSearch(this.value)" autocomplete="off">
+            <button type="button" class="pos-search-clear-btn" id="pos-search-clear" onclick="clearPositionSearch()" style="display: none;" title="Clear search">✕</button>
+          </div>
+        </div>
+
+        <button class="btn btn-secondary btn-sm" onclick="loadPositions()" title="Refresh Positions">🔄 Refresh</button>
       </div>
 
       <!-- Desktop Table View -->
