@@ -1447,7 +1447,7 @@ function renderPositionsDesktopTable(positions) {
       : `<span style="color: var(--text-dim);">0 CLOSED</span>`;
 
     const squareOffBtn = isOpen
-      ? `<button class="btn btn-danger" style="padding: 4px 12px; font-size: 11px; font-weight: 700;" onclick="exitSinglePosition('${p.symbol}')">Square Off</button>`
+      ? `<button class="btn btn-danger" style="padding: 4px 12px; font-size: 11px; font-weight: 700;" onclick="event.stopPropagation(); openPositionActions('${p.symbol}', '${p.product}')">Exit</button>`
       : '<span style="color: var(--text-dim);">--</span>';
 
     let row = tbody.querySelector(`tr[data-pos-id="${posId}"]`);
@@ -1466,6 +1466,9 @@ function renderPositionsDesktopTable(positions) {
       `;
       tbody.appendChild(row);
     }
+
+    row.style.cursor = 'pointer';
+    row.onclick = () => openPositionActions(p.symbol, p.product);
 
     // In-place updates to avoid flicker
     row.querySelector('.col-sym').textContent = p.symbol;
@@ -1542,6 +1545,7 @@ function renderPositionsMobileCards(positions) {
       card = document.createElement('div');
       card.className = `pos-card ${!isOpen ? 'pos-closed' : ''}`;
       card.setAttribute('data-pos-id', posId);
+      card.onclick = () => openPositionActions(p.symbol, p.product);
       card.innerHTML = `
         <div class="pos-row-main">
           <div class="pos-left">
@@ -1558,7 +1562,7 @@ function renderPositionsMobileCards(positions) {
             <div class="pos-card-pnl ${pnlClass}">${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}</div>
             <div class="pos-action-wrap">
               ${isOpen ? `
-                <button class="btn-sq-mini" onclick="exitSinglePosition('${p.symbol}')" title="Square off this position">
+                <button class="btn-sq-mini" onclick="event.stopPropagation(); openPositionActions('${p.symbol}', '${p.product}')" title="Actions for this position">
                   Exit
                 </button>
               ` : `<span class="closed-label">Closed</span>`}
@@ -1570,6 +1574,7 @@ function renderPositionsMobileCards(positions) {
     } else {
       // In-place update without rebuilding DOM (Anti-Blink)
       card.className = `pos-card ${!isOpen ? 'pos-closed' : ''}`;
+      card.onclick = () => openPositionActions(p.symbol, p.product);
 
       const pnlEl = card.querySelector('.pos-card-pnl');
       if (pnlEl) {
@@ -1598,7 +1603,7 @@ function renderPositionsMobileCards(positions) {
       const actionWrap = card.querySelector('.pos-action-wrap');
       if (actionWrap) {
         actionWrap.innerHTML = isOpen ? `
-          <button class="btn-sq-mini" onclick="exitSinglePosition('${p.symbol}')" title="Square off this position">
+          <button class="btn-sq-mini" onclick="event.stopPropagation(); openPositionActions('${p.symbol}', '${p.product}')" title="Actions for this position">
             Exit
           </button>
         ` : `<span class="closed-label">Closed</span>`;
@@ -1656,12 +1661,134 @@ async function exitAllPositions() {
 }
 
 // ---------------------------------------------------------
+// Position Actions Modal (Add More / Exit Selection)
+// ---------------------------------------------------------
+let selectedPositionAction = null;
+
+function openPositionActions(symbol, product) {
+  const pos = rawPositions.find(p => p.symbol === symbol && (!product || p.product === product)) ||
+              rawPositions.find(p => p.symbol === symbol);
+  if (!pos) return;
+
+  selectedPositionAction = pos;
+
+  const netQty = pos.net_qty || 0;
+  const isLong = netQty > 0;
+  const isShort = netQty < 0;
+  const isOpen = netQty !== 0;
+  const ltp = Number(pos.ltp || 0);
+  const pnl = Number(pos.pnl || 0.0);
+  const avgPrice = netQty >= 0 ? Number(pos.buy_avg || 0) : Number(pos.sell_avg || 0);
+
+  // Set modal header & badges
+  const symEl = document.getElementById('pos-action-symbol');
+  if (symEl) symEl.textContent = pos.symbol;
+
+  const prodEl = document.getElementById('pos-action-product');
+  if (prodEl) prodEl.textContent = pos.product || 'NRML';
+
+  const sideBadgeEl = document.getElementById('pos-action-side-badge');
+  if (sideBadgeEl) {
+    sideBadgeEl.className = `badge-micro ${isLong ? 'buy' : isShort ? 'sell' : 'dim'}`;
+    sideBadgeEl.textContent = isLong ? `+${netQty} LONG` : isShort ? `${netQty} SHORT` : '0 CLOSED';
+  }
+
+  const netQtyEl = document.getElementById('pos-action-net-qty');
+  if (netQtyEl) {
+    netQtyEl.textContent = `${netQty > 0 ? '+' : ''}${netQty}`;
+    netQtyEl.style.color = isLong ? 'var(--green)' : isShort ? 'var(--red)' : 'var(--text-dim)';
+  }
+
+  const avgPriceEl = document.getElementById('pos-action-avg-price');
+  if (avgPriceEl) avgPriceEl.textContent = `₹${avgPrice.toFixed(2)}`;
+
+  const ltpEl = document.getElementById('pos-action-ltp');
+  if (ltpEl) ltpEl.textContent = `₹${ltp.toFixed(2)}`;
+
+  const pnlEl = document.getElementById('pos-action-pnl');
+  if (pnlEl) {
+    pnlEl.textContent = `${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}`;
+    pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Dynamic Button 1: Add More
+  const addTitleEl = document.getElementById('pos-add-title');
+  const addDescEl = document.getElementById('pos-add-desc');
+  if (addTitleEl) {
+    addTitleEl.textContent = isLong ? 'Add More (BUY)' : isShort ? 'Add More (SELL)' : 'Re-enter (BUY)';
+  }
+  if (addDescEl) {
+    addDescEl.textContent = isLong ? 'Buy additional lots with Market/Limit' : isShort ? 'Sell additional lots with Market/Limit' : 'Place new order with Market/Limit';
+  }
+
+  // Dynamic Button 2: Exit Position
+  const exitBtnEl = document.getElementById('btn-pos-exit');
+  const exitTitleEl = document.getElementById('pos-exit-title');
+  const exitDescEl = document.getElementById('pos-exit-desc');
+  if (exitTitleEl) {
+    exitTitleEl.textContent = isLong ? 'Exit Position (SELL)' : isShort ? 'Exit Position (BUY)' : 'Trade Opposite (SELL)';
+  }
+  if (exitDescEl) {
+    exitDescEl.textContent = isOpen ? 'Square off or reduce quantity with Market/Limit' : 'Place opposite side order';
+  }
+  if (exitBtnEl) {
+    exitBtnEl.style.display = 'block';
+  }
+
+  // Quick 1-click square off link
+  const quickExitEl = document.getElementById('btn-pos-quick-market-exit');
+  if (quickExitEl) {
+    quickExitEl.style.display = isOpen ? 'inline-block' : 'none';
+  }
+
+  const modal = document.getElementById('position-action-modal');
+  if (modal) modal.classList.add('open');
+}
+
+function closePositionActionModal() {
+  const modal = document.getElementById('position-action-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function executePositionAction(actionType) {
+  if (!selectedPositionAction) return;
+  const pos = selectedPositionAction;
+  closePositionActionModal();
+
+  const netQty = pos.net_qty || 0;
+  const isLong = netQty > 0;
+  const ltp = Number(pos.ltp || 0);
+  const lotSize = getLotSizeForSymbol(pos.symbol);
+
+  if (actionType === 'ADD') {
+    // Add More: same side as position (BUY if long, SELL if short)
+    const side = isLong ? 'BUY' : (netQty < 0 ? 'SELL' : 'BUY');
+    openPositionOrderModal(pos.symbol, side, lotSize, lotSize, ltp, pos.product || 'NRML', `Add to Position`);
+  } else if (actionType === 'EXIT') {
+    // Exit: opposite side to square off/reduce (SELL if long, BUY if short)
+    const side = isLong ? 'SELL' : 'BUY';
+    const openQty = Math.abs(netQty) || lotSize;
+    openPositionOrderModal(pos.symbol, side, openQty, lotSize, ltp, pos.product || 'NRML', `Exit Position`);
+  }
+}
+
+function executePositionQuickExit() {
+  if (!selectedPositionAction) return;
+  const symbol = selectedPositionAction.symbol;
+  closePositionActionModal();
+  exitSinglePosition(symbol);
+}
+
+// ---------------------------------------------------------
 // Order Ticket Modal
 // ---------------------------------------------------------
-function quickOrder(symbol, side, lotSize, ltp) {
+function openPositionOrderModal(symbol, side, qty, lotSize, ltp, product = 'NRML', modalTitle = 'Place Order') {
   state.orderSide = side;
   state.currentLotSize = lotSize || 65;
   state.currentLtp = ltp || 0.0;
+
+  const titleEl = document.getElementById('order-modal-title');
+  if (titleEl) titleEl.textContent = modalTitle;
 
   const symbolInput = document.getElementById('order-symbol');
   if (symbolInput) symbolInput.value = symbol;
@@ -1675,15 +1802,23 @@ function quickOrder(symbol, side, lotSize, ltp) {
     priceBadge.textContent = (!isNaN(numPrice) && numPrice > 0) ? `₹${numPrice.toFixed(2)}` : '₹0.00';
   }
 
-  document.getElementById('order-qty').value = state.currentLotSize;
-  document.getElementById('order-price').value = ltp || 0.0;
+  const qtyInput = document.getElementById('order-qty');
+  if (qtyInput) qtyInput.value = qty;
+
+  const priceInput = document.getElementById('order-price');
+  if (priceInput) priceInput.value = (ltp && !isNaN(ltp)) ? parseFloat(ltp).toFixed(2) : 0.0;
+
   const lotHint = document.getElementById('order-lot-hint');
-  if (lotHint) lotHint.innerText = `Lot size: ${state.currentLotSize}`;
+  if (lotHint) lotHint.innerText = `Qty: ${qty} | Lot size: ${state.currentLotSize}`;
 
   setOrderSide(side);
-  setOrderProduct('NRML');
+  setOrderProduct(product || 'NRML');
   setOrderType('MARKET');
   openOrderModal();
+}
+
+function quickOrder(symbol, side, lotSize, ltp) {
+  openPositionOrderModal(symbol, side, lotSize || 65, lotSize || 65, ltp, 'NRML', 'Place Order');
 }
 
 function openOrderModal() {
@@ -1693,6 +1828,8 @@ function openOrderModal() {
 
 function closeOrderModal() {
   document.getElementById('order-modal').classList.remove('open');
+  const titleEl = document.getElementById('order-modal-title');
+  if (titleEl) titleEl.textContent = 'Place Order';
 }
 
 function setOrderSide(side) {

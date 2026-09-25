@@ -690,6 +690,77 @@
   </div>
 
   <!-- ========================================================= -->
+  <!-- MODAL: POSITION ACTIONS (ADD MORE / EXIT) -->
+  <!-- ========================================================= -->
+  <div class="modal-backdrop" id="position-action-modal">
+    <div class="modal-card position-action-card">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;">💼</span>
+          <div>
+            <h3 class="modal-title" id="pos-action-symbol">-</h3>
+            <div style="font-size: 11px; color: var(--text-muted); display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+              <span class="badge-micro tag-prod" id="pos-action-product">NRML</span>
+              <span id="pos-action-side-badge" class="badge-micro buy">+65 LONG</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="close-btn" onclick="closePositionActionModal()">&times;</button>
+      </div>
+
+      <!-- Position Stats Overview -->
+      <div class="pos-action-stats-grid">
+        <div class="pos-stat-box">
+          <span class="pos-stat-label">NET QTY</span>
+          <span class="pos-stat-val" id="pos-action-net-qty">0</span>
+        </div>
+        <div class="pos-stat-box">
+          <span class="pos-stat-label">AVG PRICE</span>
+          <span class="pos-stat-val" id="pos-action-avg-price">₹0.00</span>
+        </div>
+        <div class="pos-stat-box">
+          <span class="pos-stat-label">LTP</span>
+          <span class="pos-stat-val" id="pos-action-ltp">₹0.00</span>
+        </div>
+        <div class="pos-stat-box">
+          <span class="pos-stat-label">P&L</span>
+          <span class="pos-stat-val" id="pos-action-pnl">₹0.00</span>
+        </div>
+      </div>
+
+      <!-- Action Choice Buttons -->
+      <div class="pos-action-buttons-wrap">
+        <button type="button" class="btn btn-pos-action btn-pos-add" id="btn-pos-add-more" onclick="executePositionAction('ADD')">
+          <div class="btn-pos-inner">
+            <span class="btn-pos-icon">➕</span>
+            <div class="btn-pos-texts">
+              <span class="btn-pos-title" id="pos-add-title">Add More</span>
+              <span class="btn-pos-desc" id="pos-add-desc">Increase position with Market/Limit</span>
+            </div>
+          </div>
+        </button>
+
+        <button type="button" class="btn btn-pos-action btn-pos-exit" id="btn-pos-exit" onclick="executePositionAction('EXIT')">
+          <div class="btn-pos-inner">
+            <span class="btn-pos-icon">🚪</span>
+            <div class="btn-pos-texts">
+              <span class="btn-pos-title" id="pos-exit-title">Exit Position</span>
+              <span class="btn-pos-desc" id="pos-exit-desc">Square off or reduce lots with Market/Limit</span>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Instant 1-Click Market Square Off Link -->
+      <div style="text-align: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border);">
+        <button type="button" class="btn-link-danger" id="btn-pos-quick-market-exit" onclick="executePositionQuickExit()" style="background: none; border: none; color: var(--red); font-size: 11.5px; font-weight: 600; cursor: pointer; text-decoration: underline;">
+          ⚡ Instant Market Square Off (1-Click)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
   <!-- MODAL: KOTAK NEO LOGIN -->
   <!-- ========================================================= -->
   <div class="modal-backdrop" id="login-modal">
